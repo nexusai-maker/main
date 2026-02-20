@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Contact — Nexus Builder</title>
+  <link rel="icon" href="/nexus.ico">
+  <link rel="stylesheet" href="nexus.css">
+</head>
+<body>
+
+
+
+<header>
+  <div class="container">
+    <div class="logo-area">
+      <img src="https://p3cfvpusg_uifu6tvg0x.c.websim.com/Nexus_icon.png" alt="Nexus Logo">
+    </div>
+    <nav>
+      <a href="features.html">Features</a>
+      <a href="home.html">Home</a>
+      <a href="contact_me.html">Contact</a>
+      <a href="terms_of_use.html">Legal</a>
+      <a href="#" id="navSignup">Sign Up</a>
+      <a href="#" id="navLogin">Sign In</a>
+      <button id="darkToggle" class="dark-toggle" title="Toggle dark mode">🌙</button>
+    </nav>
+  </div>
+</header>
+
+<div class="container">
+  <h2>Contact Me</h2>
+  <div class="content-block card">
+    <label>Your email</label>
+    <input id="email" type="email" placeholder="you@example.com">
+    <label>Message</label>
+    <textarea id="message" rows="5" placeholder="How can we help?"></textarea>
+    <button id="send" class="btn-main" style="margin-top:8px">Send Message</button>
+    <p class="note muted" id="status" style="margin-top:8px"></p>
+  </div>
+  <p style="margin-top:12px"><a href="index.html">← Back</a></p>
+</div>
+
+<footer>
+  <div class="container">
+    <p>&copy; 2026 Nexus Builder International. Built for the modern web.</p>
+    <p><a href="home.html">Home</a> | <a href="privacy.html">Privacy</a> | <a href="terms_of_use.html">Terms</a></p>
+  </div>
+</footer>
+
+<!-- Reuse the same lightweight scripts from index.html for auth, dark mode and mail compose -->
+<script>
+  // Dark mode persistence & toggle (shared lightweight approach)
+  (function(){
+    const darkToggle = document.getElementById('darkToggle');
+    function applyDark(enabled){
+      if(enabled) document.body.classList.add('dark-theme'); else document.body.classList.remove('dark-theme');
+      if(darkToggle) darkToggle.textContent = enabled ? '☀️' : '🌙';
+    }
+    try{
+      const val = localStorage.getItem('nexus_dark');
+      applyDark(val === '1' || val === 'true');
+    }catch(e){}
+    if(darkToggle){
+      darkToggle.addEventListener('click', ()=>{
+        const now = !document.body.classList.contains('dark-theme');
+        applyDark(now);
+        try{ localStorage.setItem('nexus_dark', now ? '1' : '0'); }catch(e){}
+      });
+    }
+  })();
+
+  // Simple contact mail behaviour (open gmail compose or mailto fallback)
+  document.getElementById('send').addEventListener('click',()=>{
+    const fromEmail = document.getElementById('email').value.trim();
+    const msg = document.getElementById('message').value.trim();
+    const statusEl = document.getElementById('status');
+    if(!fromEmail || !msg){ statusEl.textContent='Please provide email and a message.'; return; }
+
+    const recipient = 'robloxthe395@gmail.com';
+    const subject = encodeURIComponent('Contact form message from Nexus Builder');
+    const bodyLines = [
+      `From: ${fromEmail}`,
+      '',
+      msg,
+      '',
+      '---',
+      'Sent from Nexus Builder contact form'
+    ];
+    const body = encodeURIComponent(bodyLines.join('\n\n'));
+
+    const gmailUrl = `https://mail.google.com/mail/?view=cm&fs=1&to=${encodeURIComponent(recipient)}&su=${subject}&body=${body}`;
+    const mailtoUrl = `mailto:${encodeURIComponent(recipient)}?subject=${subject}&body=${body}`;
+
+    try {
+      const win = window.open(gmailUrl, '_blank');
+      if(!win || win.closed || typeof win.closed === 'undefined'){
+        window.location.href = mailtoUrl;
+      }
+      statusEl.textContent = 'Opening your mail composer...';
+    } catch (e) {
+      window.location.href = mailtoUrl;
+      statusEl.textContent = 'Opening your mail client...';
+    }
+  });
+
+  // Header auth links mimic index.html behavior: open index for sign up/sign in
+  (function(){
+    const ns = document.getElementById('navSignup');
+    const nl = document.getElementById('navLogin');
+    if(ns) ns.addEventListener('click', (e)=>{ e.preventDefault(); location.href='index.html'; });
+    if(nl) nl.addEventListener('click', (e)=>{ e.preventDefault(); location.href='index.html'; });
+  })();
+</script>
+
+</body>
+</html>

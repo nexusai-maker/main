@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Nexus.ai | Create Your Website</title>
+  <link rel="icon" href="/nexus.ico">
+  <link rel="stylesheet" href="nexus.css">
+</head>
+<body>
+
+
+
+<header>
+  <div class="container">
+    <div class="logo-area">
+      <img src="https://p3cfvpusg_uifu6tvg0x.c.websim.com/Nexus_icon.png" alt="Nexus Logo">
+    </div>
+    <nav>
+      <a href="features.html">Features</a>
+      <a href="home.html">Home</a>
+      <a href="contact_me.html">Contact</a>
+      <a href="terms_of_use.html">Legal</a>
+      <a href="#" id="navSignup">Sign Up</a>
+      <a href="#" id="navLogin">Sign In</a>
+      <button id="darkToggle" class="dark-toggle" title="Toggle dark mode">🌙</button>
+    </nav>
+  </div>
+</header>
+
+<section class="hero">
+  <div class="container">
+    <h2>Design Your Legacy.</h2>
+    <p>Reliable. Fast. Always online. Build, share, and explore public projects.</p>
+    <div class="btn-container">
+      <a href="#" id="getStarted" class="btn-main">Get Started Now</a>
+      <!-- removed duplicate Sign In in hero per request -->
+    </div>
+  </div>
+</section>
+
+<div class="container">
+  <div class="content-block">
+    <h3>About Nexus Builder</h3>
+    <p>Nexus Builder offers a lightweight, dependable website creation experience with the look and feel of a modern, minimal builder. Everything runs client-side in this demo.</p>
+  </div>
+
+  <div class="content-block" style="display:flex;gap:16px;flex-wrap:wrap;">
+    <div style="flex:1;min-width:220px;">
+      <h3>Quick Start</h3>
+      <p>Sign up or sign in, then visit Home to explore public projects and comment on them.</p>
+    </div>
+    <div style="flex:1;min-width:220px;">
+      <h3>Support</h3>
+      <p>Need help? Visit Contact to prepare a message locally.</p>
+    </div>
+  </div>
+</div>
+
+<footer>
+  <div class="container">
+    <p>&copy; 2026 Nexus Builder International. Built for the modern web.</p>
+    <p><a href="home.html">Home</a> | <a href="privacy.html">Privacy</a> | <a href="terms_of_use.html">Terms</a></p>
+  </div>
+</footer>
+
+<!-- Auth Modal -->
+<div id="authBackdrop" class="modal-backdrop" role="dialog" aria-hidden="true">
+  <div class="modal" role="document" aria-modal="true">
+    <h4 id="authTitle">Create an account</h4>
+    <div id="authMsg" class="muted" style="margin-bottom:8px">Accounts are stored locally.</div>
+    <input id="authUsername" placeholder="Username (e.g. alice)" />
+    <input id="authPass" type="password" placeholder="Password" />
+    <div class="row" style="margin-top:10px">
+      <button id="authSubmit" class="btn-main" style="flex:1">Sign Up</button>
+      <button id="authSwitch" style="background:none;border:0;color:#0056b3;font-weight:700;margin-left:8px">Switch to Sign In</button>
+    </div>
+    <div style="text-align:right;margin-top:12px"><button id="authClose" style="background:none;border:0;color:#555;font-weight:bold">Close</button></div>
+  </div>
+</div>
+
+<!-- Site create modal (reused) -->
+<div id="createBackdrop" class="modal-backdrop" role="dialog" aria-hidden="true">
+  <div class="modal" role="document" aria-modal="true">
+    <h4>Create a simple site</h4>
+    <p style="margin:0 0 8px 0">Enter a site name and pick a theme color.</p>
+    <input id="siteName" placeholder="Site name (e.g. My Portfolio)">
+    <div class="row" style="margin-top:8px;align-items:center">
+      <input id="themeColor" type="color" value="#0056b3">
+
+      <button id="createBtn" class="btn-main" style="padding:10px 16px;margin-left:auto">Create</button>
+    </div>
+    <p style="margin-top:10px;font-size:13px;color:#666">This creates a downloadable HTML file you can open locally. Public projects are intended to be shared; private ones are for personal use.</p>
+    <div style="text-align:right;margin-top:12px"><button id="closeCreate" style="background:none;border:0;color:#555;font-weight:bold">Close</button></div>
+  </div>
+</div>
+
+<script>
+  // Simple client-side auth (localStorage) and navigation
+  function currentUser(){ try{ return JSON.parse(localStorage.getItem('nexus_user')||'null'); }catch(e){return null} }
+  function setUser(u){ localStorage.setItem('nexus_user', JSON.stringify(u)); }
+  function logout(){ localStorage.removeItem('nexus_user'); location.reload(); }
+
+  // Auth modal logic
+  const authBackdrop = document.getElementById('authBackdrop');
+  const authTitle = document.getElementById('authTitle');
+  const authMsg = document.getElementById('authMsg');
+  const authEmail = document.getElementById('authEmail');
+  const authPass = document.getElementById('authPass');
+  const authSubmit = document.getElementById('authSubmit');
+  const authSwitch = document.getElementById('authSwitch');
+
+  let isSignUp = true;
+
+  // Header nav auth links
+  document.getElementById('navSignup').addEventListener('click', (e) => {
+    e.preventDefault();
+    isSignUp = true;
+    authTitle.textContent = 'Create an account';
+    authSubmit.textContent = 'Sign Up';
+    authMsg.textContent = 'Accounts are stored locally for this demo.';
+    authUsername.value = '';
+    authPass.value = '';
+    authBackdrop.style.display = 'flex';
+    authBackdrop.setAttribute('aria-hidden','false');
+  });
+  document.getElementById('navLogin').addEventListener('click', (e) => {
+    e.preventDefault();
+    isSignUp = false;
+    authTitle.textContent = 'Sign in';
+    authSubmit.textContent = 'Sign In';
+    authMsg.textContent = 'Sign in with a previously created local account.';
+    authUsername.value = '';
+    authPass.value = '';
+    authBackdrop.style.display = 'flex';
+    authBackdrop.setAttribute('aria-hidden','false');
+  });
+
+  // keep hero buttons functional as-is
+  document.getElementById('getStarted').addEventListener('click', (e) => {
+    e.preventDefault();
+    // open signup by default
+    isSignUp = true;
+    authTitle.textContent = 'Create an account';
+    authSubmit.textContent = 'Sign Up';
+    authMsg.textContent = 'Accounts are stored locally for this demo.';
+    authUsername.value = '';
+    authPass.value = '';
+    authBackdrop.style.display = 'flex';
+    authBackdrop.setAttribute('aria-hidden','false');
+  });
+
+  // removed the hero "Sign In" button (duplicate) and added a persistent dark-mode toggle
+  const darkToggle = document.getElementById('darkToggle');
+  function applyDarkMode(enabled){
+    if(enabled) document.body.classList.add('dark-theme');
+    else document.body.classList.remove('dark-theme');
+    // update toggle icon
+    if(darkToggle) darkToggle.textContent = enabled ? '☀️' : '🌙';
+  }
+  // initialize from localStorage
+  (function(){
+    try{
+      const val = localStorage.getItem('nexus_dark');
+      const enabled = val === '1' || val === 'true';
+      applyDarkMode(enabled);
+    }catch(e){}
+  })();
+  if(darkToggle){
+    darkToggle.addEventListener('click', ()=>{
+      const now = document.body.classList.contains('dark-theme') ? false : true;
+      applyDarkMode(now);
+      try{ localStorage.setItem('nexus_dark', now ? '1' : '0'); }catch(e){}
+    });
+  }
+
+  document.getElementById('authClose').addEventListener('click', ()=>{
+    authBackdrop.style.display='none'; authBackdrop.setAttribute('aria-hidden','true');
+  });
+
+  authSwitch.addEventListener('click', ()=>{
+    isSignUp = !isSignUp;
+    if(isSignUp){
+      authTitle.textContent='Create an account';
+      authSubmit.textContent='Sign Up';
+      authMsg.textContent='Accounts are stored locally for this demo.';
+    } else {
+      authTitle.textContent='Sign in';
+      authSubmit.textContent='Sign In';
+      authMsg.textContent='Sign in with a previously created local account.';
+    }
+  });
+
+  authSubmit.addEventListener('click', ()=>{
+    const username = (authUsername.value||'').trim();
+    const pass = (authPass.value||'').trim();
+    if(!username || !pass){ alert('Please provide a username and password.'); return; }
+    const accounts = JSON.parse(localStorage.getItem('nexus_accounts')||'{}');
+    const key = username.toLowerCase();
+    if(isSignUp){
+      if(accounts[key]){ alert('Account already exists. Sign in instead.'); return; }
+      accounts[key] = { username, pass, created:Date.now() };
+      localStorage.setItem('nexus_accounts', JSON.stringify(accounts));
+      setUser({ username });
+      authBackdrop.style.display='none';
+      location.href = 'home.html';
+    } else {
+      if(!accounts[key] || accounts[key].pass !== pass){ alert('Invalid credentials'); return; }
+      setUser({ username });
+      authBackdrop.style.display='none';
+      location.href = 'home.html';
+    }
+  });
+
+  // Create site modal
+  const createBackdrop = document.getElementById('createBackdrop');
+  document.getElementById('closeCreate').addEventListener('click', ()=>{ createBackdrop.style.display='none'; createBackdrop.setAttribute('aria-hidden','true'); });
+  document.getElementById('createBtn').addEventListener('click', function(){
+    const name = (document.getElementById('siteName').value || 'My Site').replace(/[^a-z0-9 \-_]/gi,'');
+    const color = document.getElementById('themeColor').value || '#0056b3';
+    const isPublic = true;
+    // include a small machine-readable meta comment indicating public/private status
+    const html = `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${name}</title>
+<!-- nexus-meta: {"public": ${isPublic}} -->
+<style>body{font-family:Arial,Helvetica,sans-serif;margin:0;padding:36px;background:#f7f9fb}header{background:${color};color:#fff;padding:20px;border-radius:6px}h1{margin:0}</style>
+</head>
+<body>
+<header><h1>${name}${isPublic ? ' — Public' : ' — Private'}</h1></header>
+<main style="margin-top:16px"><p>Site generated with Nexus Builder demo.</p></main>
+</body>
+</html>`;
+    const blob = new Blob([html], {type: 'text/html'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    // append suffix to filename so it's easy to tell public vs private
+    const suffix = isPublic ? '_public' : '_private';
+    a.download = `${name.replace(/\s+/g,'_')}${suffix}.html`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  });
+
+  // If user already signed in, redirect to home
+  (function(){
+    const u = currentUser();
+    if(u){
+      try{
+        // Immediately navigate signed-in users to the home view
+        location.href = 'home.html';
+      }catch(e){
+        // Fallback: at least log the signed-in user if navigation fails
+        console.log('Signed in as', u.username || u.email);
+      }
+    }
+  })();
+</script>
+
+</body>
+</html>

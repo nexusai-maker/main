@@ -1,0 +1,404 @@
+body {
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+  background: #f4f7f9;
+  color: #6b6b6b;
+}
+
+.status-alert {
+  background: #dff0d8;
+  color: #3c763d;
+  padding: 10px;
+  text-align: center;
+  font-size: 13px;
+  border-bottom: 1px solid #d6e9c6;
+  font-weight: 600;
+}
+
+header {
+  background: linear-gradient(#fff, #f1f1f1);
+  border-bottom: 1px solid #ccc;
+  padding: 12px 0;
+}
+
+.container {
+  width: 960px;
+  max-width: 96%;
+  margin: 0 auto;
+  overflow: hidden;
+}
+
+.logo-area {
+  float: left;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo-area img {
+  height: 44px;
+}
+
+nav {
+  float: right;
+  margin-top: 10px;
+}
+
+nav a {
+  margin-left: 18px;
+  text-decoration: none;
+  color: #000;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.hero {
+  background: linear-gradient(135deg, #2c3e50 0%, #0056b3 100%);
+  color: #fff;
+  padding: 18px 0;
+  text-align: center;
+  border-bottom: 4px solid #004494;
+}
+
+.content {
+  padding: 18px;
+}
+
+/* Compact grid showing small square project tiles */
+.project-grid {
+  display: grid;
+  /* up to 5 items per row, then wrap to the next row */
+  grid-template-columns: repeat(5, minmax(100px, 1fr));
+  gap: 10px;
+  justify-items: start;    /* align each card to the left within its grid cell */
+  justify-content: start;  /* keep the overall grid left-aligned */
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* Make each project card tightly wrap a small square thumbnail and concise meta */
+.card {
+  background: #fff;
+  border: 1px solid #e6e6e6;
+  padding: 6px;
+  border-radius: 6px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-direction: column;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  /* make the card compact */
+  max-width: 140px;
+  margin: 0; /* left-align cards instead of centering */
+}
+
+/* Compact fixed square preview for each project (smaller normal square) */
+.proj-thumb-holder {
+  width: 89px;
+  height: 89px;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 8px;
+  display: block;
+  position: relative;
+  background: #fafafa;
+  border: 1px solid #eee;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+/* Ensure thumbnail images fully fill the square holder and are cropped rather than letterboxed */
+.proj-thumb {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: 0;
+  background: #f1f1f1;
+  object-fit: cover !important;
+  border: 0;
+  max-width: none !important;
+  max-height: none !important;
+  display: block;
+}
+
+
+
+/* More modest preview height for better balance on small screens */
+#projPreview {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  /* make the preview fill its column but let inner media keep natural proportions */
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #888;
+  font-size: 14px;
+  overflow: hidden;
+  padding: 0;
+  border-radius: 8px;
+  flex: 1 1 0; /* allow the preview column to flex */
+  background: #fafafa;
+  border: 1px solid #eee;
+  box-sizing: border-box;
+  min-height: 0;
+  max-height: 760px; /* cap absolute size on very tall displays */
+}
+/* Ensure preview adopts the site's dark theme */
+.dark-theme #projPreview {
+  background: #07101a;
+  color: #d6e6f0;
+  border-color: #0d161a;
+}
+.dark-theme #projPreview img {
+  filter: none;
+}
+
+/* Preview images or iframes should fill the preview area */
+#projPreview img, #projPreview iframe {
+  /* Constrain media to preview column and viewport so it doesn't fill the whole screen */
+  width: 100%;
+  height: auto;
+  max-width: 900px;
+  max-height: calc(100vh - 160px); /* keep some headroom for header/controls */
+  object-fit: contain;
+  display: block;
+  border-radius: 6px;
+  border: 0;
+  min-height: 0;
+}
+
+.proj-meta {
+  flex: 1;
+  min-width: 0;
+}
+/* Hide the long description in cards and make titles truncate with ellipsis */
+.proj-meta p { display: none; }
+.proj-title {
+  display: block;
+  font-size: 13px;
+  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.1;
+}
+/* Make the preview square clearly clickable (boxed, stacked above meta) */
+.proj-thumb-holder {
+  width: 89px;
+  height: 89px;
+  aspect-ratio: 1 / 1;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-radius: 8px;
+  display: block;
+  position: relative;
+  background: #07101a; /* compact dark preview box when dark theme applied */
+  border: 1px solid #0d161a;
+  cursor: pointer;
+  margin: 0 auto;
+}
+
+/* thumbnail image fills the holder */
+.proj-thumb-holder .proj-thumb,
+.proj-thumb-holder img {
+  position: absolute;
+  inset: 0;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  display: block;
+}
+
+/* small overlay caption inside the square (title) */
+.thumb-caption {
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  bottom: 6px;
+  background: rgba(0,0,0,0.45);
+  padding: 4px 6px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+.thumb-title {
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  display: block;
+}
+
+/* Keep the larger .proj-title hidden in the card (we show small title in the thumbnail) */
+.proj-title { display: none; }
+
+/* Author line below the thumbnail - small and muted */
+.proj-meta .author-line {
+  font-size: 12px;
+  color: #000;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* dark theme adjustments for overlay and author */
+body.dark-theme .thumb-caption { background: rgba(0,0,0,0.55); }
+body.dark-theme .proj-meta .author-line { color: #9fb0c2; }
+
+/* muted helper, and ensure form text is clearly readable (black) as requested */
+.muted {
+  color: #6b6b6b;
+  font-size: 13px;
+}
+
+/* Force input/textarea/select text to black for readability and consistent editing */
+input, textarea, select {
+  color: #6b6b6b;
+  /* preserve the rest of existing form styling defaults */
+  font-family: inherit;
+  font-size: 14px;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+button {
+  background: #0056b3;
+  color: #fff;
+  border: 0;
+  padding: 10px 12px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.comment-list {
+  max-height: 160px;
+  overflow: auto;
+  padding-top: 0;
+  margin-top: 8px;
+}
+
+.comment {
+  padding: 6px 0;
+  border: none;
+  background: transparent;
+}
+
+.auth-inline {
+  float: right;
+}
+
+@media (max-width: 760px) {
+  .card {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .proj-thumb-holder {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1 / 1;
+    flex: unset;
+  }
+
+  nav {
+    display: none;
+  }
+
+  .hero {
+    padding: 20px;
+  }
+}
+
+/* Dark theme (consistent with index) */
+body.dark-theme {
+  background: #0f1720;
+  color: #dfe7ee;
+}
+
+body.dark-theme .status-alert {
+  background: #0b2a2b;
+  color: #bff0e8;
+  border-bottom-color: #073636;
+}
+
+body.dark-theme header {
+  background: linear-gradient(#0b1220, #071019);
+  border-bottom-color: #08131a;
+}
+
+body.dark-theme .container .card {
+  background: #07101a;
+  border-color: #0b1620;
+  color: #d6e6f0;
+}
+
+body.dark-theme .proj-thumb-holder {
+  background: #0b1216;
+  border-color: #0d161a;
+}
+/* Divider between viewer columns (dark theme) */
+body.dark-theme #viewerDivider {
+  background: #0d161a;
+}
+
+body.dark-theme .muted {
+  color: #9fb0c2;
+}
+
+body.dark-theme .btn-main {
+  box-shadow: 0 4px 0 rgba(0, 0, 0, 0.5);
+}
+
+body.dark-theme input,
+body.dark-theme textarea,
+body.dark-theme select {
+  background: #07101a;
+  color: #d6e6f0;
+  border-color: #123040;
+}
+
+.dark-toggle {
+  background: transparent;
+  border: 0;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 6px 8px;
+  border-radius: 6px;
+  color: inherit;
+}
+
+/* Make titles, descriptions and comments visually darker for readability */
+#projTitle,
+#sideTitle,
+#sideDesc,
+#projDesc,
+.proj-meta .author-line,
+.card .proj-meta .author-line,
+.proj-thumb-holder .thumb-title,
+.proj-thumb-holder .muted,
+.comment,
+.comment * {
+  color: #333 !important;
+}
+
+/* Ensure generated preview text inside preview area also appears darker */
+#projPreview,
+#projPreview .muted,
+#projPreview p,
+#projPreview div {
+  color: #333 !important;
+}

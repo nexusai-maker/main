@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Terms of Use — Nexus Builder</title>
+  <link rel="icon" href="/nexus.ico">
+  <link rel="stylesheet" href="nexus.css">
+</head>
+<body>
+
+
+
+<header>
+  <div class="container">
+    <div class="logo-area">
+      <img src="https://p3cfvpusg_uifu6tvg0x.c.websim.com/Nexus_icon.png" alt="Nexus Logo">
+    </div>
+    <nav>
+      <a href="features.html">Features</a>
+      <a href="home.html">Home</a>
+      <a href="contact_me.html">Contact</a>
+      <a href="terms_of_use.html">Legal</a>
+      <a href="#" id="navSignup">Sign Up</a>
+      <a href="#" id="navLogin">Sign In</a>
+      <button id="darkToggle" class="dark-toggle" title="Toggle dark mode">🌙</button>
+    </nav>
+  </div>
+</header>
+
+<div class="container content-block">
+  <div style="display:flex;justify-content:space-between;align-items:center">
+    <h2 style="margin:0">Terms of Use</h2>
+  </div>
+
+  <p style="margin-top:12px">This site is provided as-is. Use content at your own risk. No warranties provided. All data created here (accounts, projects, comments) are stored locally in your browser and can be cleared by clearing site storage.</p>
+  <p><a href="index.html">← Back</a></p>
+</div>
+
+<footer>
+  <div class="container">
+    <p>&copy; 2026 Nexus Builder International. Built for the modern web.</p>
+    <p><a href="home.html">Home</a> | <a href="privacy.html">Privacy</a> | <a href="terms_of_use.html">Terms</a></p>
+  </div>
+</footer>
+
+<script>
+(function(){
+  const darkToggle = document.getElementById('darkToggle');
+  function applyDark(enabled){ if(enabled) document.body.classList.add('dark-theme'); else document.body.classList.remove('dark-theme'); if(darkToggle) darkToggle.textContent = enabled ? '☀️' : '🌙'; }
+  try{ const v = localStorage.getItem('nexus_dark'); applyDark(v === '1' || v === 'true'); }catch(e){}
+  if(darkToggle) darkToggle.addEventListener('click', ()=>{ const now = !document.body.classList.contains('dark-theme'); applyDark(now); try{ localStorage.setItem('nexus_dark', now ? '1':'0'); }catch(e){} });
+
+  // header auth links to index
+  const ns = document.getElementById('navSignup');
+  const nl = document.getElementById('navLogin');
+  if(ns) ns.addEventListener('click', (e)=>{ e.preventDefault(); location.href='index.html'; });
+  if(nl) nl.addEventListener('click', (e)=>{ e.preventDefault(); location.href='index.html'; });
+})();
+</script>
+</body>
+</html>
