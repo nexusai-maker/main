@@ -217,1247 +217,824 @@
 </div>
 
 <script>
-  // Use WebsimSocket for persistent records; fall back to localStorage if unavailable
-  function currentUser() {
-    try {
-      return JSON.parse(localStorage.getItem('nexus_user') || 'null');
-    } catch (e) {
-      return null;
-    }
-  }
-  const user = currentUser();
-  const userInfo = document.getElementById('userInfo');
-  const navSignOut = document.getElementById('navSignOut');
-  const navSignup = document.getElementById('navSignup');
-  const navLogin = document.getElementById('navLogin');
-  const headerUserArea = document.getElementById('userArea');
-  const createBtn = document.getElementById('createProjectBtn');
+        // ==================== FIREBASE INITIALIZATION ====================
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
+        import { 
+            getFirestore, 
+            collection, doc, addDoc, getDocs, getDoc, updateDoc, deleteDoc, 
+            query, where, onSnapshot, orderBy 
+        } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
 
-  // Initialize header state
-  if (user) {
-    if (headerUserArea) headerUserArea.textContent = user.username || user.email;
-    if (navSignup) navSignup.style.display = 'none';
-    if (navLogin) navLogin.style.display = 'none';
-    if (navSignOut) {
-      navSignOut.style.display = 'inline';
-      navSignOut.addEventListener('click', (e) => {
-        e.preventDefault();
-        localStorage.removeItem('nexus_user');
-        location.reload();
-      });
-    }
-    // Hide main nav links when signed in
-    try {
-      ['Features', 'Home', 'Contact', 'Legal'].forEach((t) => {
-        Array.from(document.querySelectorAll('nav a')).forEach((a) => {
-          if (a.textContent.trim() === t) a.style.display = 'none';
-        });
-      });
-    } catch (e) {}
-    if (createBtn) createBtn.style.display = 'inline-block';
-    const pt = document.getElementById('projectsTitle');
-    if (pt) pt.textContent = '';
-    if (userInfo) userInfo.textContent = '';
-  } else {
-    if (headerUserArea) headerUserArea.textContent = '';
-    userInfo.innerHTML = '<a href="index.html">Sign in</a> to comment';
-    if (navSignOut) navSignOut.style.display = 'none';
-    if (navSignup) navSignup.style.display = '';
-    if (navLogin) navLogin.style.display = '';
-    if (createBtn) createBtn.style.display = 'none';
-  }
+        const firebaseConfig = {
+            apiKey: "AIzaSyCtVTdmq5AW_D2NqENWn8mF10ZKhkC-Ln0",
+            authDomain: "github-nexus-ai.firebaseapp.com",
+            projectId: "github-nexus-ai",
+            storageBucket: "github-nexus-ai.firebasestorage.app",
+            messagingSenderId: "619866617724",
+            appId: "1:619866617724:web:45bb73ca5ca1664a3e56f9",
+            measurementId: "G-F6C535VEZ1"
+        };
 
-  // Nav links lead to index when clicked for auth
-  document.addEventListener('DOMContentLoaded', () => {
-    const ns = document.getElementById('navSignup');
-    const nl = document.getElementById('navLogin');
-    if (ns) ns.addEventListener('click', (e) => { e.preventDefault(); location.href = 'index.html'; });
-    if (nl) nl.addEventListener('click', (e) => { e.preventDefault(); location.href = 'index.html'; });
-  });
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
 
-  // WebsimSocket connection (if available)
-  let room = null;
-  async function ensureRoom() {
-    if (room) return room;
-    if (window.WebsimSocket) {
-      try {
-        const inst = new WebsimSocket();
-        room = inst instanceof Promise ? await inst : inst;
-        return room;
-      } catch (e) {
-        console.warn('WebsimSocket init failed', e);
-        room = null;
-        return null;
-      }
-    }
-    return null;
-  }
-
-  function escapeHtml(s) {
-    return ('' + s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-  }
-
-  // Simple moderation helper for titles and descriptions:
-  // - rejects content containing banned words
-  // - enforces reasonable length limits
-  function moderateText(text, { field = 'text' } = {}) {
-    const trimmed = (text || '').trim();
-    // Basic banned words list (case-insensitive). Expand as needed.
-    const banned = ['spam', 'fake', 'scam', 'illegal', 'piracy', 'torrent', 'hate', 'kill', 'bomb', 'fuck', 'bitch', 'shit', 'balls'];
-    const lower = trimmed.toLowerCase();
-    for (const b of banned) {
-      if (lower.includes(b)) {
-        return { ok: false, reason: `The ${field} contains prohibited content.` };
-      }
-    }
-    // Length constraints
-    const maxTitle = 120;
-    const maxDesc = 1000;
-    if (field === 'title' && trimmed.length > maxTitle) {
-      return { ok: false, reason: `The title is too long (max ${maxTitle} characters).` };
-    }
-    if (field === 'desc' && trimmed.length > maxDesc) {
-      return { ok: false, reason: `The description is too long (max ${maxDesc} characters).` };
-    }
-    // must not be empty after trimming
-    if (!trimmed) {
-      return { ok: false, reason: `The ${field} cannot be empty.` };
-    }
-    return { ok: true, value: trimmed };
-  }
-
-  let activeProject = null;
-
-  // Render list of public projects (with robust local fallback)
-  function renderList(projects) {
-    const container = document.getElementById('projects');
-    container.innerHTML = '';
-
-    // If no projects were passed (e.g., remote DB empty), try localStorage fallback
-    let list = Array.isArray(projects) ? projects.slice() : [];
-    if (!list.length) {
-      try {
-        const local = JSON.parse(localStorage.getItem('nexus_public_projects') || '[]');
-        if (Array.isArray(local) && local.length) {
-          list = local.slice();
-        }
-      } catch (e) {
-        console.warn('local fallback read failed', e);
-      }
-    }
-
-    if (!list || !list.length) {
-      container.innerHTML = '<div class="muted">No projects yet. Create one to see it here.</div>';
-      return;
-    }
-
-    const user = currentUser();
-    const filtered = list.filter((p) => {
-      if (!p) return false;
-      if (p.public) return true;
-      if (user && p.author && p.author.toLowerCase() === (user.username || user.email || '').toLowerCase()) return true;
-      return false;
-    });
-
-    if (!filtered.length) {
-      container.innerHTML = '<div class="muted">No projects visible to you.</div>';
-      return;
-    }
-
-    filtered.forEach((p) => {
-      const el = document.createElement('div');
-      el.className = 'card';
-      const privateBadge = !p.public
-        ? '<div style="position:absolute;top:6px;left:6px;background:rgba(0,0,0,0.6);color:#fff;font-size:11px;padding:4px 6px;border-radius:6px;z-index:2">Private</div>'
-        : '';
-      const imgHtml = p.previewImage
-        ? `<div class="proj-thumb-holder" data-id="${p.id}" style="position:relative">${privateBadge}<img src="${escapeHtml(p.previewImage)}" class="proj-thumb" alt="preview"><div class="thumb-caption"><span class="thumb-title">${escapeHtml(p.title)}</span></div></div>`
-        : `<div class="proj-thumb-holder" data-id="${p.id}" style="position:relative">${privateBadge}<div class="muted" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center">No preview</div></div>`;
-      el.innerHTML = `${imgHtml}<div class="proj-meta" style="margin-top:8px"><div class="muted author-line" style="margin-top:6px">By: <a href="#" class="author-link" data-author="${escapeHtml(p.author || 'Unknown')}">${escapeHtml(p.author || 'Unknown')}</a></div></div>`;
-      container.appendChild(el);
-    });
-
-    // Use event delegation on the container so dynamically created thumbnails always respond
-    const projectsContainer = document.getElementById('projects');
-    if (projectsContainer) {
-      // remove any previous delegated handler to avoid duplicates
-      if (projectsContainer.__nexus_delegate_attached) {
-        // noop - already attached
-      } else {
-        projectsContainer.addEventListener('click', (ev) => {
-          // find closest .proj-thumb-holder from the click target
-          let el = ev.target;
-          while (el && el !== projectsContainer) {
-            if (el.classList && el.classList.contains('proj-thumb-holder')) {
-              const id = el.getAttribute('data-id');
-              if (id) openViewer(id);
-              return;
-            }
-            el = el.parentNode;
-          }
-        });
-        projectsContainer.__nexus_delegate_attached = true;
-      }
-    }
-  }
-
-  // Load projects from database (Websim) or fallback to localStorage
-  async function loadProjects() {
-    if (room) {
-      try {
-        const collection = room.collection('project');
-        collection.subscribe((all) => {
-          // ensure every project fetched from the remote DB is treated as public
-          const list = (all || []).slice().reverse();
-          list.forEach(p => { if (p) p.public = true; });
-          // Optional: remove placeholder projects if they exist in remote
-          const filtered = list.filter((p) => {
-            if (!p) return false;
-            const t = (p.title || '').toLowerCase();
-            const a = (p.author || '').toLowerCase();
-            if (t === 'minimal portfolio' && a === 'alice@example.com') return false;
-            if (t === 'photo gallery' && a === 'bob@example.com') return false;
-            if (t === 'landing page' && a === 'carol@example.com') return false;
-            return true;
-          });
-          renderList(filtered);
-        });
-        if (typeof collection.getList === 'function') {
-          try { await collection.getList(); } catch (e) {}
-        }
-        return;
-      } catch (e) {
-        console.warn('websim error', e);
-      }
-    }
-
-    // Fallback: localStorage
-    const storedRaw = JSON.parse(localStorage.getItem('nexus_public_projects') || '[]');
-    const cleaned = (storedRaw || []).filter((p) => {
-      if (!p) return false;
-      const id = (p.id || '').toString().toLowerCase();
-      const title = (p.title || '').toString().toLowerCase();
-      const author = (p.author || '').toString().toLowerCase();
-      if (id.startsWith('sample_')) return false;
-      if (title === 'minimal portfolio' && author === 'alice@example.com') return false;
-      if (title === 'photo gallery' && author === 'bob@example.com') return false;
-      if (title === 'landing page' && author === 'carol@example.com') return false;
-      if (title.includes('demo') || title.includes('fake') || author.includes('demo') || author.includes('fake')) return false;
-      return true;
-    });
-    if (JSON.stringify(cleaned) !== JSON.stringify(storedRaw)) {
-      localStorage.setItem('nexus_public_projects', JSON.stringify(cleaned));
-    }
-    renderList(cleaned);
-  }
-
-  // Viewer functions
-  async function openViewer(id) {
-    await ensureRoom();
-
-    if (room && room.collection) {
-      try {
-        const list = await room.collection('project').getList();
-        const p = (list || []).find((x) => x.id === id);
-        if (p) return showProject(p);
-        return alert('Project not found');
-      } catch (e) {
-        console.warn('Failed to load project from DB', e);
-      }
-    }
-
-    // LocalStorage fallback
-    try {
-      const projects = JSON.parse(localStorage.getItem('nexus_public_projects') || '[]');
-      const p = projects.find((x) => x.id === id);
-      if (!p) return alert('Project not found');
-      showProject(p);
-    } catch (e) {
-      console.warn('Local projects read failed', e);
-      alert('Unable to load project');
-    }
-  }
-
-  async function showProject(p) {
-    activeProject = p;
-    document.getElementById('projTitle').textContent = p.title;
-    document.getElementById('projDesc').textContent = (p.desc || '') + (p.author ? ' — by ' + p.author : '');
-    const previewEl = document.getElementById('projPreview');
-    previewEl.innerHTML = '';
-
-    // Show preview HTML if available
-    if (p.previewHtml && p.previewHtml.trim()) {
-      try {
-        previewEl.style.height = '100%';
-        previewEl.style.minHeight = '0';
-        const iframe = document.createElement('iframe');
-        iframe.style.width = '100%';
-        iframe.style.height = '100%';
-        iframe.style.border = '0';
-        iframe.style.borderRadius = '6px';
-        previewEl.appendChild(iframe);
-        const doc = iframe.contentWindow?.document;
-        if (doc) {
-          doc.open();
-          doc.write(p.previewHtml);
-          doc.close();
-        } else {
-          previewEl.innerHTML = p.previewHtml;
-        }
-      } catch (e) {
-        console.warn('iframe preview failed, falling back to inline HTML', e);
-        previewEl.innerHTML = p.previewHtml;
-      }
-    } else if (p.previewImage) {
-      previewEl.style.height = '100%';
-      previewEl.style.minHeight = '0';
-      const img = document.createElement('img');
-      img.src = p.previewImage;
-      img.alt = p.title + ' preview';
-      img.className = 'proj-thumb';
-      previewEl.appendChild(img);
-    } else {
-      previewEl.style.height = '100%';
-      previewEl.style.minHeight = '0';
-      previewEl.textContent = p.previewText || 'Preview';
-    }
-
-    // Side panel
-    document.getElementById('sideTitle').textContent = p.title || 'Project';
-    document.getElementById('sideAuthor').textContent = p.author ? 'by ' + p.author : 'by Unknown';
-    document.getElementById('sideDesc').textContent = p.desc || '';
-    document.getElementById('commentText').value = '';
-
-    // Show/hide edit/delete buttons based on ownership (use NexusAPI.isOwner to allow admin override)
-    const u = currentUser();
-    const currentId = (u && (u.username || u.email)) || '';
-    let isOwner = false;
-    try {
-      if (window.NexusAPI && typeof window.NexusAPI.isOwner === 'function') {
-        // pass the project and the current user's identifier to let NexusAPI handle admin override
-        isOwner = await window.NexusAPI.isOwner(p, currentId);
-      } else {
-        // fallback to legacy check
-        isOwner = (u && u.username === '@random_user_1') || (u && p.author && p.author.toLowerCase() === (currentId || '').toLowerCase());
-      }
-    } catch (e) {
-      console.warn('ownership check failed', e);
-      isOwner = (u && u.username === '@random_user_1') || (u && p.author && p.author.toLowerCase() === (currentId || '').toLowerCase());
-    }
-
-    const editBtn = document.getElementById('editProjectBtn');
-    const deleteBtn = document.getElementById('deleteProjectBtn');
-    if (editBtn) editBtn.style.display = isOwner ? 'inline-block' : 'none';
-    if (deleteBtn) deleteBtn.style.display = isOwner ? 'inline-block' : 'none';
-
-    document.getElementById('viewerBackdrop').style.display = 'flex';
-  }
-
-  // --- Profile modal: open profile for an author and list their projects (remote then local)
-  async function openProfile(author) {
-    if (!author) return;
-    document.getElementById('profileName').textContent = author;
-    document.getElementById('profileMeta').textContent = '';
-    document.getElementById('profileAbout').textContent = '';
-    document.getElementById('profileProjects').innerHTML = '<div class="muted">Loading projects...</div>';
-
-    // Follow button state
-    const follows = JSON.parse(localStorage.getItem('nexus_follows') || '[]');
-    const isFollowing = follows.includes(author);
-    const followBtn = document.getElementById('profileFollowBtn');
-    followBtn.textContent = isFollowing ? 'Unfollow' : 'Follow';
-    followBtn.dataset.author = author;
-
-    // Try remote first
-    try {
-      await ensureRoom();
-      if (room && room.collection) {
-        try {
-          const col = room.collection('project');
-          let list = [];
-          if (typeof col.filter === 'function' && typeof col.filter({}).getList === 'function') {
-            list = await col.getList();
-          } else if (typeof col.getList === 'function') {
-            list = await col.getList();
-          }
-          list = (list || []).filter(p => (p.author || '').toString().toLowerCase() === (author||'').toLowerCase());
-          if (list.length) {
-            renderProfileProjects(list);
-            document.getElementById('profileBackdrop').style.display = 'flex';
-            return;
-          }
-        } catch (e) {
-          console.warn('Remote profile projects read failed', e);
-        }
-      }
-    } catch (e) {
-      console.warn('ensureRoom failed for profile', e);
-    }
-
-    // Local fallback
-    try {
-      const local = JSON.parse(localStorage.getItem('nexus_public_projects') || '[]');
-      const list = (local || []).filter(p => (p.author || '').toString().toLowerCase() === (author||'').toLowerCase());
-      renderProfileProjects(list);
-    } catch (e) {
-      console.warn('Local profile projects read failed', e);
-      document.getElementById('profileProjects').innerHTML = '<div class="muted">Unable to load projects.</div>';
-    }
-
-    document.getElementById('profileBackdrop').style.display = 'flex';
-  }
-
-  function renderProfileProjects(list) {
-    const el = document.getElementById('profileProjects');
-    el.innerHTML = '';
-    if (!list || !list.length) {
-      el.innerHTML = '<div class="muted">No projects yet.</div>';
-      return;
-    }
-    list.forEach(p => {
-      const card = document.createElement('div');
-      card.className = 'card';
-      const title = escapeHtml(p.title || 'Untitled');
-      const id = escapeHtml(p.id || '');
-      const html = `<div style="padding:8px"><div style="font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</div><div style="margin-top:8px"><button data-id="${id}" class="openProjFromProfile" style="background:#28a745">Open</button></div></div>`;
-      card.innerHTML = html;
-      el.appendChild(card);
-    });
-
-    // wire open buttons
-    el.querySelectorAll('.openProjFromProfile').forEach(btn => {
-      btn.addEventListener('click', (e) => {
-        const id = btn.dataset.id;
-        if (id) {
-          document.getElementById('profileBackdrop').style.display = 'none';
-          openViewer(id);
-        }
-      });
-    });
-  }
-
-  // Follow/unfollow handler
-  document.getElementById('profileFollowBtn')?.addEventListener('click', (e) => {
-    const btn = e.currentTarget;
-    const author = btn.dataset.author;
-    if (!author) return;
-    const key = 'nexus_follows';
-    let arr = JSON.parse(localStorage.getItem(key) || '[]');
-    const idx = arr.indexOf(author);
-    if (idx === -1) {
-      arr.push(author);
-      btn.textContent = 'Unfollow';
-    } else {
-      arr.splice(idx, 1);
-      btn.textContent = 'Follow';
-    }
-    localStorage.setItem(key, JSON.stringify(arr));
-    // small feedback
-    btn.disabled = true;
-    setTimeout(() => { btn.disabled = false; }, 600);
-  });
-
-  document.getElementById('closeProfile')?.addEventListener('click', () => {
-    document.getElementById('profileBackdrop').style.display = 'none';
-  });
-
-  // Delegate click events for author links in project list (works for dynamically rendered items)
-  document.getElementById('projects')?.addEventListener('click', (ev) => {
-    let el = ev.target;
-    while (el && el !== document.getElementById('projects')) {
-      if (el.matches && el.matches('a.author-link')) {
-        ev.preventDefault();
-        const author = el.dataset.author;
-        openProfile(author);
-        return;
-      }
-      el = el.parentNode;
-    }
-  });
-
-  // Helper: render comments (remote via room when possible, fallback to localStorage)
-  async function renderComments(projectId) {
-    const listEl = document.getElementById('commentList');
-    if (!listEl || !projectId) return;
-    listEl.innerHTML = '<div class="muted">Loading comments...</div>';
-
-    // Try remote comments first
-    try {
-      await ensureRoom();
-      if (room && room.collection) {
-        try {
-          // If remote supports filtering and subscribe, use subscribe to get live updates
-          const col = room.collection('comment');
-          if (typeof col.filter === 'function' && typeof col.subscribe === 'function') {
-            // Unsubscribe previous listener for comments if one exists
-            if (window.__nexus_comments_unsub) { try { window.__nexus_comments_unsub(); } catch(e){} window.__nexus_comments_unsub = null; }
-            const filterObj = { project_id: projectId };
-            // subscribe returns nothing in some hosts, so simulate by calling getList once first
-            window.__nexus_comments_unsub = col.filter(filterObj).subscribe(function(all){
-              const comments = (all || []).slice().reverse();
-              listEl.innerHTML = '';
-              if (!comments.length) {
-                listEl.innerHTML = '<div class="muted">No comments yet.</div>';
-                return;
-              }
-              comments.forEach(c=>{
-                const row = document.createElement('div');
-                row.className = 'comment';
-                const who = escapeHtml(c.user || c.username || 'Anonymous');
-                const when = c.ts ? new Date(c.ts).toLocaleString() : '';
-                row.innerHTML = `<div style="font-weight:700;font-size:13px">${who} <span class="muted" style="font-weight:400;font-size:11px;margin-left:8px">${when}</span></div><div style="margin-top:6px">${escapeHtml(c.text || '')}</div>`;
-                listEl.appendChild(row);
-              });
-            });
-            // Try initial fetch if getList available
-            if (typeof col.filter === 'function' && typeof col.filter(filterObj).getList === 'function') {
-              try {
-                await col.filter(filterObj).getList();
-              } catch(e){}
-            }
-            return;
-          } else if (typeof col.getList === 'function') {
-            const all = await col.getList();
-            const comments = (all || []).filter(c => c && c.project_id === projectId).slice().reverse();
-            listEl.innerHTML = '';
-            if (!comments.length) { listEl.innerHTML = '<div class="muted">No comments yet.</div>'; return; }
-            comments.forEach(c=>{
-              const row = document.createElement('div');
-              row.className = 'comment';
-              const who = escapeHtml(c.user || c.username || 'Anonymous');
-              const when = c.ts ? new Date(c.ts).toLocaleString() : '';
-              row.innerHTML = `<div style="font-weight:700;font-size:13px">${who} <span class="muted" style="font-weight:400;font-size:11px;margin-left:8px">${when}</span></div><div style="margin-top:6px">${escapeHtml(c.text || '')}</div>`;
-              listEl.appendChild(row);
-            });
-            return;
-          }
-        } catch (e) {
-          console.warn('Remote comments read failed', e);
-        }
-      }
-    } catch(e){
-      console.warn('ensureRoom failed for comments', e);
-    }
-
-    // Fallback to localStorage
-    try {
-      const key = 'nexus_comments_' + projectId;
-      const items = JSON.parse(localStorage.getItem(key) || '[]');
-      listEl.innerHTML = '';
-      if (!items || !items.length) {
-        listEl.innerHTML = '<div class="muted">No comments yet.</div>';
-        return;
-      }
-      items.forEach(c=>{
-        const row = document.createElement('div');
-        row.className = 'comment';
-        const who = escapeHtml(c.user || 'Anonymous');
-        const when = c.ts ? new Date(c.ts).toLocaleString() : '';
-        row.innerHTML = `<div style="font-weight:700;font-size:13px">${who} <span class="muted" style="font-weight:400;font-size:11px;margin-left:8px">${when}</span></div><div style="margin-top:6px">${escapeHtml(c.text || '')}</div>`;
-        listEl.appendChild(row);
-      });
-    } catch (e) {
-      console.warn('Local comments render failed', e);
-      listEl.innerHTML = '<div class="muted">Unable to load comments.</div>';
-    }
-  }
-
-  // Post comment (saves to remote when possible and updates UI immediately)
-  document.getElementById('postComment')?.addEventListener('click', async () => {
-    const txt = (document.getElementById('commentText').value || '').trim();
-    if (!txt) return alert('Write a comment first.');
-    if (!activeProject) return;
-    const u = currentUser();
-    if (!u) { alert('Please sign in on the main page to comment.'); return; }
-
-    const payload = { user: u.email, text: txt, ts: Date.now(), project_id: activeProject.id };
-    let savedRemote = false;
-
-    try {
-      await ensureRoom();
-      if (room && room.collection) {
-        try {
-          await room.collection('comment').create(payload);
-          savedRemote = true;
-        } catch (e) {
-          console.warn('Remote comment create failed', e);
-        }
-      }
-    } catch (e) {
-      console.warn('ensureRoom failed during comment create', e);
-    }
-
-    // Always persist locally as fallback and update the UI
-    try {
-      const key = 'nexus_comments_' + activeProject.id;
-      const list = JSON.parse(localStorage.getItem(key) || '[]');
-      list.unshift({ user: u.email, text: txt, ts: Date.now() });
-      localStorage.setItem(key, JSON.stringify(list.slice(0, 200)));
-    } catch (e) {
-      console.warn('Local comment save failed', e);
-    }
-
-    document.getElementById('commentText').value = '';
-    // Re-render comments (will reflect remote if available or the local save)
-    try { await renderComments(activeProject.id); } catch (e) { console.warn(e); }
-    // Minor UX feedback
-    const listEl = document.getElementById('commentList');
-    if (listEl) {
-      const notice = document.createElement('div');
-      notice.className = 'muted';
-      notice.style.marginTop = '6px';
-      notice.textContent = savedRemote ? 'Comment posted.' : 'Comment saved locally (offline or remote failed).';
-      listEl.parentNode.insertBefore(notice, listEl.nextSibling);
-      setTimeout(()=>{ try{ notice.remove(); }catch(e){} }, 1800);
-    }
-  });
-
-  // Close viewer
-  document.getElementById('closeViewer')?.addEventListener('click', () => {
-    document.getElementById('viewerBackdrop').style.display = 'none';
-  });
-  document.getElementById('closeViewer2')?.addEventListener('click', () => {
-    document.getElementById('viewerBackdrop').style.display = 'none';
-  });
-
-  // Download (ZIP) and delete handlers
-  (function () {
-    async function getJSZip() {
-      if (window.JSZipLib) return window.JSZipLib;
-      try {
-        const mod = await import('https://esm.sh/jszip@3.10.1');
-        window.JSZipLib = mod.default || mod;
-        return window.JSZipLib;
-      } catch (e) {
-        console.warn('JSZip import failed', e);
-        return null;
-      }
-    }
-
-    async function downloadProjectAsZip(project) {
-      if (!project) return alert('No project selected.');
-      let htmlContent = '';
-      try {
-        const title = (project.title || 'Project').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        const desc = (project.desc || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        const previewImage = project.previewImage || '';
-        htmlContent = `<!doctype html>
-<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title><style>body{font-family:Arial,Helvetica,sans-serif;margin:0;padding:24px;background:#f7f9fb}header{background:#222;color:#fff;padding:20px;border-radius:8px}img{max-width:100%;height:auto;border-radius:6px}</style></head><body><header><h1>${title}</h1></header><main style="margin-top:16px"><p>${desc}</p>${previewImage ? `<img src="${previewImage}" alt="preview">` : ''}</main></body></html>`;
-      } catch (e) {
-        htmlContent = `<!doctype html><html><head><meta charset="utf-8"><title>${project.title || 'Project'}</title></head><body><h1>${project.title || 'Project'}</h1><p>${project.desc || ''}</p></body></html>`;
-      }
-
-      const zipLib = await getJSZip();
-      if (!zipLib) {
-        // Fallback: download as .html
-        const blob = new Blob([htmlContent], { type: 'text/html' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = (project.title || 'project').replace(/\s+/g, '_') + '.html';
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        return;
-      }
-
-      try {
-        const zip = new zipLib();
-        zip.file((project.title || 'project').replace(/\s+/g, '_') + '.html', htmlContent);
-        if (project.previewImage && project.previewImage.startsWith('data:')) {
-          const base64 = project.previewImage.split(',')[1];
-          const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-          zip.file('preview_image', bytes, { binary: true });
-        }
-        const content = await zip.generateAsync({ type: 'blob' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(content);
-        a.download = (project.title || 'project').replace(/\s+/g, '_') + '.zip';
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(a.href);
-      } catch (e) {
-        console.error('zip error', e);
-        const blob = new Blob([htmlContent], { type: 'text/html' });
-        const a = document.createElement('a');
-        a.href = URL.createObjectURL(blob);
-        a.download = (project.title || 'project').replace(/\s+/g, '_') + '.html';
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-      }
-    }
-
-    const downloadBtn = document.getElementById('downloadProjectBtn');
-    if (downloadBtn) {
-      downloadBtn.addEventListener('click', async () => {
-        if (!activeProject) return alert('No project selected.');
-        await downloadProjectAsZip(activeProject);
-      });
-    }
-
-    const downloadBtn2 = document.getElementById('downloadProjectBtn2');
-    if (downloadBtn2) {
-      downloadBtn2.addEventListener('click', async () => {
-        if (!activeProject) return alert('No project selected.');
-        await downloadProjectAsZip(activeProject);
-      });
-    }
-
-    const deleteBtn = document.getElementById('deleteProjectBtn');
-    if (deleteBtn) {
-      deleteBtn.addEventListener('click', async () => {
-        if (!activeProject) return alert('No project selected.');
-        const u = currentUser();
-
-        let isOwner = false;
-        try {
-          if (window.NexusAPI && typeof window.NexusAPI.isOwner === 'function') {
-            // pass username (preferred) or email to NexusAPI.isOwner so admin override works
-            isOwner = await window.NexusAPI.isOwner(activeProject, (u && (u.username || u.email)) || '');
-          } else if (activeProject.author && u) {
-            isOwner = (u && u.username === '@random_user_1') || (activeProject.author.toLowerCase() === (u.username || u.email || '').toLowerCase());
-          } else {
-            isOwner = !!u;
-          }
-        } catch (e) {
-          console.warn('owner check failed', e);
-          isOwner = !!u && (!activeProject.author || activeProject.author === '');
-        }
-
-        if (!isOwner) {
-          return alert('You must be the project owner to delete this project.');
-        }
-
-        if (!confirm('Delete this project? This action cannot be undone.')) return;
-
-        let deleted = false;
-        try {
-          if (window.NexusAPI && typeof window.NexusAPI.deleteProject === 'function') {
+        // ==================== USER MANAGEMENT (localStorage) ====================
+        function currentUser() {
             try {
-              const res = await window.NexusAPI.deleteProject(activeProject.id);
-              deleted = !!(res && res.ok !== false);
+                return JSON.parse(localStorage.getItem('nexus_user') || 'null');
             } catch (e) {
-              console.warn('NexusAPI.deleteProject failed', e);
+                return null;
             }
-          }
-        } catch (e) {
-          console.warn(e);
         }
+        const user = currentUser();
+        const userInfo = document.getElementById('userInfo');
+        const navSignOut = document.getElementById('navSignOut');
+        const navSignup = document.getElementById('navSignup');
+        const navLogin = document.getElementById('navLogin');
+        const headerUserArea = document.getElementById('userArea');
+        const createBtn = document.getElementById('createProjectBtn');
 
-        if (!deleted && room) {
-          try {
-            await room.collection('project').delete(activeProject.id);
-            deleted = true;
-          } catch (e) {
-            console.warn('websim delete failed', e);
-          }
-        }
-
-        if (!deleted) {
-          try {
-            const key = 'nexus_public_projects';
-            const arr = JSON.parse(localStorage.getItem(key) || '[]');
-            const idx = arr.findIndex((p) => p.id === activeProject.id);
-            if (idx !== -1) {
-              arr.splice(idx, 1);
-              localStorage.setItem(key, JSON.stringify(arr));
-              deleted = true;
+        // Initialize header state
+        if (user) {
+            if (headerUserArea) headerUserArea.textContent = user.username || user.email;
+            if (navSignup) navSignup.style.display = 'none';
+            if (navLogin) navLogin.style.display = 'none';
+            if (navSignOut) {
+                navSignOut.style.display = 'inline';
+                navSignOut.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    localStorage.removeItem('nexus_user');
+                    location.reload();
+                });
             }
-          } catch (e) {
-            console.warn('localStorage delete failed', e);
-          }
-        }
-
-        if (deleted) {
-          try { localStorage.removeItem('nexus_comments_' + activeProject.id); } catch (e) {}
-          document.getElementById('viewerBackdrop').style.display = 'none';
-          loadProjects(); // refresh list
+            // Hide main nav links when signed in
+            try {
+                ['Features', 'Home', 'Contact', 'Legal'].forEach((t) => {
+                    Array.from(document.querySelectorAll('nav a')).forEach((a) => {
+                        if (a.textContent.trim() === t) a.style.display = 'none';
+                    });
+                });
+            } catch (e) {}
+            if (createBtn) createBtn.style.display = 'inline-block';
+            const pt = document.getElementById('projectsTitle');
+            if (pt) pt.textContent = '';
+            if (userInfo) userInfo.textContent = '';
         } else {
-          alert('Unable to delete project. Try refreshing and try again.');
+            if (headerUserArea) headerUserArea.textContent = '';
+            userInfo.innerHTML = '<a href="index.html">Sign in</a> to comment';
+            if (navSignOut) navSignOut.style.display = 'none';
+            if (navSignup) navSignup.style.display = '';
+            if (navLogin) navLogin.style.display = '';
+            if (createBtn) createBtn.style.display = 'none';
         }
-      });
-    }
-  })();
 
-  // Edit modal opening
-  const editBtn = document.getElementById('editProjectBtn');
-  if (editBtn) {
-    editBtn.addEventListener('click', () => {
-      if (!activeProject) return;
-      // Fill edit form with current project data
-      document.getElementById('editTitle').value = activeProject.title || '';
-      document.getElementById('editDesc').value = activeProject.desc || '';
-      document.getElementById('editHtml').value = activeProject.previewHtml || '';
-      // Set visibility toggle
-      const isPublic = activeProject.public !== false; // default public if undefined
-      document.getElementById('editProjPublic').value = isPublic ? 'true' : 'false';
-      // Update button styles
-      const pubBtn = document.getElementById('editProjPublicBtn');
-      const privBtn = document.getElementById('editProjPrivateBtn');
-      if (pubBtn && privBtn) {
-        if (isPublic) {
-          pubBtn.style.background = '#0056b3';
-          pubBtn.style.color = '#fff';
-          privBtn.style.background = '#e6e6e6';
-          privBtn.style.color = '#333';
-        } else {
-          privBtn.style.background = '#0056b3';
-          privBtn.style.color = '#fff';
-          pubBtn.style.background = '#e6e6e6';
-          pubBtn.style.color = '#333';
+        // Nav links lead to index when clicked for auth
+        document.addEventListener('DOMContentLoaded', () => {
+            const ns = document.getElementById('navSignup');
+            const nl = document.getElementById('navLogin');
+            if (ns) ns.addEventListener('click', (e) => { e.preventDefault(); location.href = 'index.html'; });
+            if (nl) nl.addEventListener('click', (e) => { e.preventDefault(); location.href = 'index.html'; });
+        });
+
+        // ==================== HELPER FUNCTIONS ====================
+        function escapeHtml(s) {
+            return ('' + s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
         }
-      }
-      document.getElementById('editBackdrop').style.display = 'flex';
-    });
-  }
 
-  // Save edits
-  const saveEditBtn = document.getElementById('saveEdit');
-  if (saveEditBtn) {
-    saveEditBtn.addEventListener('click', async () => {
-      if (!activeProject) return alert('No project selected.');
-      const id = activeProject.id;
-
-      const titleRaw = (document.getElementById('editTitle').value || '');
-      const descRaw = (document.getElementById('editDesc').value || '');
-      // Moderation checks for edited content
-      const tcheck = moderateText(titleRaw, { field: 'title' });
-      if (!tcheck.ok) return alert(tcheck.reason);
-      const dcheck = moderateText(descRaw, { field: 'desc' });
-      if (!dcheck.ok) return alert(dcheck.reason);
-
-      const title = tcheck.value;
-      const desc = dcheck.value;
-      const previewHtml = (document.getElementById('editHtml').value || '').trim();
-      const makePublic = document.getElementById('editProjPublic')?.value === 'true';
-      const updates = { title, desc, previewHtml, public: makePublic, updated_at: new Date().toISOString() };
-
-      await ensureRoom();
-      let updated = false;
-      if (room && room.collection) {
-        try {
-          await room.collection('project').update(id, updates);
-          updated = true;
-        } catch (e) {
-          console.warn('Remote update failed', e);
+        function moderateText(text, { field = 'text' } = {}) {
+            const trimmed = (text || '').trim();
+            const banned = ['spam', 'fake', 'scam', 'illegal', 'piracy', 'torrent', 'hate', 'kill', 'bomb', 'fuck', 'bitch', 'shit', 'balls'];
+            const lower = trimmed.toLowerCase();
+            for (const b of banned) {
+                if (lower.includes(b)) {
+                    return { ok: false, reason: `The ${field} contains prohibited content.` };
+                }
+            }
+            const maxTitle = 120;
+            const maxDesc = 1000;
+            if (field === 'title' && trimmed.length > maxTitle) {
+                return { ok: false, reason: `The title is too long (max ${maxTitle} characters).` };
+            }
+            if (field === 'desc' && trimmed.length > maxDesc) {
+                return { ok: false, reason: `The description is too long (max ${maxDesc} characters).` };
+            }
+            if (!trimmed) {
+                return { ok: false, reason: `The ${field} cannot be empty.` };
+            }
+            return { ok: true, value: trimmed };
         }
-      }
-      if (!updated) {
-        try {
-          const key = 'nexus_public_projects';
-          const arr = JSON.parse(localStorage.getItem(key) || '[]');
-          const idx = arr.findIndex((p) => p.id === id);
-          if (idx !== -1) {
-            arr[idx] = { ...arr[idx], ...updates };
+
+        let activeProject = null;
+
+        // ==================== PROJECT LIST RENDERING ====================
+        function renderList(projects) {
+            const container = document.getElementById('projects');
+            container.innerHTML = '';
+
+            let list = Array.isArray(projects) ? projects.slice() : [];
+            if (!list || !list.length) {
+                container.innerHTML = '<div class="muted">No projects yet. Create one to see it here.</div>';
+                return;
+            }
+
+            const user = currentUser();
+            const filtered = list.filter((p) => {
+                if (!p) return false;
+                if (p.public) return true;
+                if (user && p.author && p.author.toLowerCase() === (user.username || user.email || '').toLowerCase()) return true;
+                return false;
+            });
+
+            if (!filtered.length) {
+                container.innerHTML = '<div class="muted">No projects visible to you.</div>';
+                return;
+            }
+
+            filtered.forEach((p) => {
+                const el = document.createElement('div');
+                el.className = 'card';
+                const privateBadge = !p.public
+                    ? '<div style="position:absolute;top:6px;left:6px;background:rgba(0,0,0,0.6);color:#fff;font-size:11px;padding:4px 6px;border-radius:6px;z-index:2">Private</div>'
+                    : '';
+                const imgHtml = p.previewImage
+                    ? `<div class="proj-thumb-holder" data-id="${p.id}" style="position:relative">${privateBadge}<img src="${escapeHtml(p.previewImage)}" class="proj-thumb" alt="preview"><div class="thumb-caption"><span class="thumb-title">${escapeHtml(p.title)}</span></div></div>`
+                    : `<div class="proj-thumb-holder" data-id="${p.id}" style="position:relative">${privateBadge}<div class="muted" style="width:100%;height:100%;display:flex;align-items:center;justify-content:center">No preview</div></div>`;
+                el.innerHTML = `${imgHtml}<div class="proj-meta" style="margin-top:8px"><div class="muted author-line" style="margin-top:6px">By: <a href="#" class="author-link" data-author="${escapeHtml(p.author || 'Unknown')}">${escapeHtml(p.author || 'Unknown')}</a></div></div>`;
+                container.appendChild(el);
+            });
+
+            // Event delegation for thumbnails
+            const projectsContainer = document.getElementById('projects');
+            if (projectsContainer && !projectsContainer.__nexus_delegate_attached) {
+                projectsContainer.addEventListener('click', (ev) => {
+                    let el = ev.target;
+                    while (el && el !== projectsContainer) {
+                        if (el.classList && el.classList.contains('proj-thumb-holder')) {
+                            const id = el.getAttribute('data-id');
+                            if (id) openViewer(id);
+                            return;
+                        }
+                        el = el.parentNode;
+                    }
+                });
+                projectsContainer.__nexus_delegate_attached = true;
+            }
+        }
+
+        // ==================== LOAD PROJECTS FROM FIRESTORE (REALTIME) ====================
+        function loadProjects() {
+            const projectsRef = collection(db, "projects");
+            const q = query(projectsRef, orderBy("created_at", "desc"));
+
+            onSnapshot(q, (snapshot) => {
+                const projects = snapshot.docs.map(doc => ({ 
+                    id: doc.id, 
+                    ...doc.data(),
+                    // Ensure public flag defaults to true
+                    public: doc.data().public !== false 
+                }));
+                renderList(projects);
+            }, (error) => {
+                console.error("Firestore projects error:", error);
+                document.getElementById('projects').innerHTML = '<div class="muted">Error loading projects. Check console.</div>';
+            });
+        }
+
+        // ==================== OPEN PROJECT VIEWER ====================
+        async function openViewer(id) {
+            try {
+                const docRef = doc(db, "projects", id);
+                const docSnap = await getDoc(docRef);
+                if (docSnap.exists()) {
+                    const project = { id: docSnap.id, ...docSnap.data() };
+                    showProject(project);
+                } else {
+                    alert("Project not found");
+                }
+            } catch (e) {
+                console.error("Error fetching project:", e);
+                alert("Failed to load project");
+            }
+        }
+
+        async function showProject(p) {
+            activeProject = p;
+            document.getElementById('projTitle').textContent = p.title;
+            document.getElementById('projDesc').textContent = (p.desc || '') + (p.author ? ' — by ' + p.author : '');
+            const previewEl = document.getElementById('projPreview');
+            previewEl.innerHTML = '';
+
+            if (p.previewHtml && p.previewHtml.trim()) {
+                try {
+                    previewEl.style.height = '100%';
+                    previewEl.style.minHeight = '0';
+                    const iframe = document.createElement('iframe');
+                    iframe.style.width = '100%';
+                    iframe.style.height = '100%';
+                    iframe.style.border = '0';
+                    iframe.style.borderRadius = '6px';
+                    previewEl.appendChild(iframe);
+                    const doc = iframe.contentWindow?.document;
+                    if (doc) {
+                        doc.open();
+                        doc.write(p.previewHtml);
+                        doc.close();
+                    } else {
+                        previewEl.innerHTML = p.previewHtml;
+                    }
+                } catch (e) {
+                    console.warn('iframe preview failed, falling back to inline HTML', e);
+                    previewEl.innerHTML = p.previewHtml;
+                }
+            } else if (p.previewImage) {
+                previewEl.style.height = '100%';
+                previewEl.style.minHeight = '0';
+                const img = document.createElement('img');
+                img.src = p.previewImage;
+                img.alt = p.title + ' preview';
+                img.className = 'proj-thumb';
+                previewEl.appendChild(img);
+            } else {
+                previewEl.style.height = '100%';
+                previewEl.style.minHeight = '0';
+                previewEl.textContent = p.previewText || 'Preview';
+            }
+
+            document.getElementById('sideTitle').textContent = p.title || 'Project';
+            document.getElementById('sideAuthor').textContent = p.author ? 'by ' + p.author : 'by Unknown';
+            document.getElementById('sideDesc').textContent = p.desc || '';
+            document.getElementById('commentText').value = '';
+
+            // Ownership check
+            const u = currentUser();
+            const currentId = (u && (u.username || u.email)) || '';
+            let isOwner = false;
+            try {
+                if (window.NexusAPI && typeof window.NexusAPI.isOwner === 'function') {
+                    isOwner = await window.NexusAPI.isOwner(p, currentId);
+                } else {
+                    isOwner = (u && u.username === '@random_user_1') || (u && p.author && p.author.toLowerCase() === (currentId || '').toLowerCase());
+                }
+            } catch (e) {
+                console.warn('ownership check failed', e);
+                isOwner = (u && u.username === '@random_user_1') || (u && p.author && p.author.toLowerCase() === (currentId || '').toLowerCase());
+            }
+
+            const editBtn = document.getElementById('editProjectBtn');
+            const deleteBtn = document.getElementById('deleteProjectBtn');
+            if (editBtn) editBtn.style.display = isOwner ? 'inline-block' : 'none';
+            if (deleteBtn) deleteBtn.style.display = isOwner ? 'inline-block' : 'none';
+
+            document.getElementById('viewerBackdrop').style.display = 'flex';
+
+            // Load comments for this project
+            renderComments(p.id);
+        }
+
+        // ==================== COMMENTS (FIRESTORE REALTIME) ====================
+        let commentsUnsubscribe = null;
+
+        function renderComments(projectId) {
+            const listEl = document.getElementById('commentList');
+            if (!listEl || !projectId) return;
+
+            // Unsubscribe previous listener if any
+            if (commentsUnsubscribe) {
+                commentsUnsubscribe();
+            }
+
+            const commentsRef = collection(db, "comments");
+            const q = query(commentsRef, where("projectId", "==", projectId), orderBy("ts", "desc"));
+
+            commentsUnsubscribe = onSnapshot(q, (snapshot) => {
+                listEl.innerHTML = '';
+                if (snapshot.empty) {
+                    listEl.innerHTML = '<div class="muted">No comments yet.</div>';
+                    return;
+                }
+                snapshot.forEach(doc => {
+                    const c = doc.data();
+                    const row = document.createElement('div');
+                    row.className = 'comment';
+                    const who = escapeHtml(c.user || 'Anonymous');
+                    const when = c.ts ? new Date(c.ts).toLocaleString() : '';
+                    row.innerHTML = `<div style="font-weight:700;font-size:13px">${who} <span class="muted" style="font-weight:400;font-size:11px;margin-left:8px">${when}</span></div><div style="margin-top:6px">${escapeHtml(c.text || '')}</div>`;
+                    listEl.appendChild(row);
+                });
+            }, (error) => {
+                console.error("Comments listener error:", error);
+                listEl.innerHTML = '<div class="muted">Error loading comments.</div>';
+            });
+        }
+
+        // Post comment
+        document.getElementById('postComment')?.addEventListener('click', async () => {
+            const txt = (document.getElementById('commentText').value || '').trim();
+            if (!txt) return alert('Write a comment first.');
+            if (!activeProject) return;
+            const u = currentUser();
+            if (!u) { alert('Please sign in on the main page to comment.'); return; }
+
+            const payload = {
+                user: u.email,
+                text: txt,
+                ts: Date.now(),
+                projectId: activeProject.id
+            };
+
+            try {
+                await addDoc(collection(db, "comments"), payload);
+                document.getElementById('commentText').value = '';
+                // Comment will appear automatically via snapshot
+            } catch (e) {
+                console.error("Error posting comment:", e);
+                alert("Failed to post comment. Check console.");
+            }
+        });
+
+        // ==================== PROFILE MODAL ====================
+        async function openProfile(author) {
+            if (!author) return;
+            document.getElementById('profileName').textContent = author;
+            document.getElementById('profileMeta').textContent = '';
+            document.getElementById('profileAbout').textContent = '';
+            document.getElementById('profileProjects').innerHTML = '<div class="muted">Loading projects...</div>';
+
+            // Follow button state
+            const follows = JSON.parse(localStorage.getItem('nexus_follows') || '[]');
+            const isFollowing = follows.includes(author);
+            const followBtn = document.getElementById('profileFollowBtn');
+            followBtn.textContent = isFollowing ? 'Unfollow' : 'Follow';
+            followBtn.dataset.author = author;
+
+            // Fetch projects by this author from Firestore
+            try {
+                const projectsRef = collection(db, "projects");
+                const q = query(projectsRef, where("author", "==", author));
+                const snapshot = await getDocs(q);
+                const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                renderProfileProjects(list);
+            } catch (e) {
+                console.error("Error fetching profile projects:", e);
+                document.getElementById('profileProjects').innerHTML = '<div class="muted">Unable to load projects.</div>';
+            }
+
+            document.getElementById('profileBackdrop').style.display = 'flex';
+        }
+
+        function renderProfileProjects(list) {
+            const el = document.getElementById('profileProjects');
+            el.innerHTML = '';
+            if (!list || !list.length) {
+                el.innerHTML = '<div class="muted">No projects yet.</div>';
+                return;
+            }
+            list.forEach(p => {
+                const card = document.createElement('div');
+                card.className = 'card';
+                const title = escapeHtml(p.title || 'Untitled');
+                const id = escapeHtml(p.id || '');
+                const html = `<div style="padding:8px"><div style="font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${title}</div><div style="margin-top:8px"><button data-id="${id}" class="openProjFromProfile" style="background:#28a745">Open</button></div></div>`;
+                card.innerHTML = html;
+                el.appendChild(card);
+            });
+
+            el.querySelectorAll('.openProjFromProfile').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    const id = btn.dataset.id;
+                    if (id) {
+                        document.getElementById('profileBackdrop').style.display = 'none';
+                        openViewer(id);
+                    }
+                });
+            });
+        }
+
+        // Follow/unfollow handler
+        document.getElementById('profileFollowBtn')?.addEventListener('click', (e) => {
+            const btn = e.currentTarget;
+            const author = btn.dataset.author;
+            if (!author) return;
+            const key = 'nexus_follows';
+            let arr = JSON.parse(localStorage.getItem(key) || '[]');
+            const idx = arr.indexOf(author);
+            if (idx === -1) {
+                arr.push(author);
+                btn.textContent = 'Unfollow';
+            } else {
+                arr.splice(idx, 1);
+                btn.textContent = 'Follow';
+            }
             localStorage.setItem(key, JSON.stringify(arr));
-            updated = true;
-          } else {
-            activeProject = { ...activeProject, ...updates };
-            updated = true;
-          }
-        } catch (e) {
-          console.warn('Local update failed', e);
-        }
-      }
+            btn.disabled = true;
+            setTimeout(() => { btn.disabled = false; }, 600);
+        });
 
-      if (updated) {
-        document.getElementById('editBackdrop').style.display = 'none';
+        document.getElementById('closeProfile')?.addEventListener('click', () => {
+            document.getElementById('profileBackdrop').style.display = 'none';
+        });
+
+        // Delegate click events for author links
+        document.getElementById('projects')?.addEventListener('click', (ev) => {
+            let el = ev.target;
+            while (el && el !== document.getElementById('projects')) {
+                if (el.matches && el.matches('a.author-link')) {
+                    ev.preventDefault();
+                    const author = el.dataset.author;
+                    openProfile(author);
+                    return;
+                }
+                el = el.parentNode;
+            }
+        });
+
+        // ==================== CLOSE VIEWER ====================
+        document.getElementById('closeViewer')?.addEventListener('click', () => {
+            document.getElementById('viewerBackdrop').style.display = 'none';
+            // Unsubscribe comments when viewer closes
+            if (commentsUnsubscribe) {
+                commentsUnsubscribe();
+                commentsUnsubscribe = null;
+            }
+        });
+        document.getElementById('closeViewer2')?.addEventListener('click', () => {
+            document.getElementById('viewerBackdrop').style.display = 'none';
+            if (commentsUnsubscribe) {
+                commentsUnsubscribe();
+                commentsUnsubscribe = null;
+            }
+        });
+
+        // ==================== DOWNLOAD, DELETE, EDIT, CREATE ====================
+        // (Keep your existing download logic, just replace delete/edit/create with Firestore)
+
+        // Delete project
+        const deleteBtn = document.getElementById('deleteProjectBtn');
+        if (deleteBtn) {
+            deleteBtn.addEventListener('click', async () => {
+                if (!activeProject) return alert('No project selected.');
+                const u = currentUser();
+
+                let isOwner = false;
+                try {
+                    if (window.NexusAPI && typeof window.NexusAPI.isOwner === 'function') {
+                        isOwner = await window.NexusAPI.isOwner(activeProject, (u && (u.username || u.email)) || '');
+                    } else if (activeProject.author && u) {
+                        isOwner = (u && u.username === '@random_user_1') || (activeProject.author.toLowerCase() === (u.username || u.email || '').toLowerCase());
+                    } else {
+                        isOwner = !!u;
+                    }
+                } catch (e) {
+                    console.warn('owner check failed', e);
+                    isOwner = !!u && (!activeProject.author || activeProject.author === '');
+                }
+
+                if (!isOwner) {
+                    return alert('You must be the project owner to delete this project.');
+                }
+
+                if (!confirm('Delete this project? This action cannot be undone.')) return;
+
+                try {
+                    await deleteDoc(doc(db, "projects", activeProject.id));
+                    document.getElementById('viewerBackdrop').style.display = 'none';
+                    // List updates automatically via onSnapshot
+                } catch (e) {
+                    console.error('Error deleting project:', e);
+                    alert('Unable to delete project. Check console.');
+                }
+            });
+        }
+
+        // Edit modal opening
+        const editBtn = document.getElementById('editProjectBtn');
+        if (editBtn) {
+            editBtn.addEventListener('click', () => {
+                if (!activeProject) return;
+                document.getElementById('editTitle').value = activeProject.title || '';
+                document.getElementById('editDesc').value = activeProject.desc || '';
+                document.getElementById('editHtml').value = activeProject.previewHtml || '';
+                const isPublic = activeProject.public !== false;
+                document.getElementById('editProjPublic').value = isPublic ? 'true' : 'false';
+                const pubBtn = document.getElementById('editProjPublicBtn');
+                const privBtn = document.getElementById('editProjPrivateBtn');
+                if (pubBtn && privBtn) {
+                    if (isPublic) {
+                        pubBtn.style.background = '#0056b3';
+                        pubBtn.style.color = '#fff';
+                        privBtn.style.background = '#e6e6e6';
+                        privBtn.style.color = '#333';
+                    } else {
+                        privBtn.style.background = '#0056b3';
+                        privBtn.style.color = '#fff';
+                        pubBtn.style.background = '#e6e6e6';
+                        pubBtn.style.color = '#333';
+                    }
+                }
+                document.getElementById('editBackdrop').style.display = 'flex';
+            });
+        }
+
+        // Save edits
+        const saveEditBtn = document.getElementById('saveEdit');
+        if (saveEditBtn) {
+            saveEditBtn.addEventListener('click', async () => {
+                if (!activeProject) return alert('No project selected.');
+                const id = activeProject.id;
+
+                const titleRaw = document.getElementById('editTitle').value || '';
+                const descRaw = document.getElementById('editDesc').value || '';
+                const tcheck = moderateText(titleRaw, { field: 'title' });
+                if (!tcheck.ok) return alert(tcheck.reason);
+                const dcheck = moderateText(descRaw, { field: 'desc' });
+                if (!dcheck.ok) return alert(dcheck.reason);
+
+                const title = tcheck.value;
+                const desc = dcheck.value;
+                const previewHtml = (document.getElementById('editHtml').value || '').trim();
+                const makePublic = document.getElementById('editProjPublic')?.value === 'true';
+                const updates = { title, desc, previewHtml, public: makePublic, updated_at: new Date().toISOString() };
+
+                try {
+                    const docRef = doc(db, "projects", id);
+                    await updateDoc(docRef, updates);
+                    document.getElementById('editBackdrop').style.display = 'none';
+                    alert('Project updated.');
+                } catch (e) {
+                    console.error('Error updating project:', e);
+                    alert('Unable to save changes. Check console.');
+                }
+            });
+        }
+
+        // Cancel edit
+        document.getElementById('cancelEdit')?.addEventListener('click', () => {
+            document.getElementById('editBackdrop').style.display = 'none';
+        });
+
+        // Create project UI
+        const createBackdrop = document.getElementById('createProjectBackdrop');
+        const saveProjectBtn = document.getElementById('saveProject');
+        document.getElementById('cancelCreate')?.addEventListener('click', () => {
+            createBackdrop.style.display = 'none';
+        });
+        createBtn?.addEventListener('click', () => {
+            createBackdrop.style.display = 'flex';
+        });
+
+        // Save new project
+        saveProjectBtn?.addEventListener('click', async () => {
+            const title = (document.getElementById('newProjTitle').value || '').trim();
+            const desc = (document.getElementById('newProjDesc').value || '').trim();
+            if (!title) return alert('Provide a title.');
+            const author = (currentUser() && (currentUser().username || currentUser().email)) || 'Anonymous';
+            const fileInput = document.getElementById('projImage'); // not used
+            let previewImage = null;
+
+            const generatedHtml = document.getElementById('newProjHtml')?.value || '';
+            const isPublic = document.getElementById('projPublic')?.value === 'true';
+            const payload = {
+                title,
+                desc,
+                author,
+                public: isPublic,
+                created_at: new Date().toISOString(),
+                previewImage,
+                previewText: (desc || '').slice(0, 200),
+                previewHtml: generatedHtml,
+            };
+
+            try {
+                await addDoc(collection(db, "projects"), payload);
+                createBackdrop.style.display = 'none';
+                // Clear form
+                document.getElementById('newProjTitle').value = '';
+                document.getElementById('newProjDesc').value = '';
+                document.getElementById('newProjHtml').value = '';
+            } catch (e) {
+                console.error('Error adding project:', e);
+                alert('Failed to create project. Check console.');
+            }
+        });
+
+        // Visibility toggle wiring (keep your existing toggle functions)
+        (function setupToggles() {
+            function initToggle(publicBtnId, privateBtnId, hiddenId) {
+                const pubBtn = document.getElementById(publicBtnId);
+                const privBtn = document.getElementById(privateBtnId);
+                const hidden = document.getElementById(hiddenId);
+                if (!pubBtn || !privBtn || !hidden) return;
+                const setPublic = () => {
+                    pubBtn.style.background = '#0056b3';
+                    pubBtn.style.color = '#fff';
+                    privBtn.style.background = '#e6e6e6';
+                    privBtn.style.color = '#333';
+                    hidden.value = 'true';
+                };
+                const setPrivate = () => {
+                    privBtn.style.background = '#0056b3';
+                    privBtn.style.color = '#fff';
+                    pubBtn.style.background = '#e6e6e6';
+                    pubBtn.style.color = '#333';
+                    hidden.value = 'false';
+                };
+                pubBtn.addEventListener('click', setPublic);
+                privBtn.addEventListener('click', setPrivate);
+                if (hidden.value === 'false') setPrivate(); else setPublic();
+            }
+            initToggle('projPublicBtn', 'projPrivateBtn', 'projPublic');
+            initToggle('editProjPublicBtn', 'editProjPrivateBtn', 'editProjPublic');
+        })();
+
+        // ==================== AI GENERATION (unchanged) ====================
+        (function () {
+            const aiBtn = document.getElementById('aiGenerateBtn');
+            const aiPromptInput = document.getElementById('aiPrompt');
+
+            function localGenerate(keywords) {
+                const k = (keywords || '').trim();
+                const words = k ? k.split(/[\s,]+/).filter(Boolean) : [];
+                const titleParts = words.slice(0, 3).map(w => w.charAt(0).toUpperCase() + w.slice(1));
+                const title = titleParts.length ? titleParts.join(' ') + ' Showcase' : 'Minimal Project Showcase';
+                const desc = k ? `A compact ${words[0] || 'portfolio'}-style site showcasing ${words.slice(0, 3).join(', ') || 'projects'}.` : 'A concise showcase site built with Nexus.';
+                const previewHtml = words.some(w => /photo|image|gallery|portfolio|pic|photo/i.test(w))
+                    ? `<div style="display:flex;align-items:center;justify-content:center;background:#f1f1f1;padding:8px;border-radius:6px"><img src="https://via.placeholder.com/600x400?text=${encodeURIComponent(title)}" style="max-width:100%;border-radius:6px" alt="${title}"></div>`
+                    : `<div style="padding:12px;background:linear-gradient(90deg,#fff,#f6f9ff);border-radius:6px"><h3 style="margin:0 0 6px 0">${title}</h3><p style="margin:0;color:#444">${desc}</p></div>`;
+                return { title, desc, html: previewHtml };
+            }
+
+            aiBtn?.addEventListener('click', async () => {
+                const promptText = (aiPromptInput.value || '').trim();
+                if (window.websim?.chat?.completions) {
+                    aiBtn.disabled = true;
+                    aiBtn.textContent = 'Generating...';
+                    try {
+                        const system = {
+                            role: 'system',
+                            content: 'You are an expert full-stack developer and code generator. Respond only with valid JSON: {\"title\":string, \"desc\":string, \"html\":string}. The html value must be a compact, well-formed HTML snippet suitable for embedding in an iframe preview (e.g., a self-contained <div> or <img> block). Prefer semantic markup, add short inline comments in the html if useful, and avoid external resources unless essential.'
+                        };
+                        const user = {
+                            role: 'user',
+                            content: `Using these keywords: ${promptText}, produce a concise project title, a short description, and a preview HTML snippet. Return ONLY a single JSON object. The html field should be safe to embed and may include minimal inline styles or small inline scripts only when necessary. Example output: {\"title\":\"...\",\"desc\":\"...\",\"html\":\"<div>...</div>\"}`
+                        };
+                        const completion = await websim.chat.completions.create({
+                            model: 'gemini-flash-2.5',
+                            messages: [system, user],
+                            json: true,
+                            temperature: 0.2,
+                            max_tokens: 800
+                        });
+                        let resultText = completion.content || completion;
+                        let parsed;
+                        try { parsed = (typeof resultText === 'string') ? JSON.parse(resultText) : resultText; } catch (e) {
+                            const m = ('' + resultText).match(/\{[\s\S]*\}/);
+                            if (m) parsed = JSON.parse(m[0]);
+                        }
+                        if (parsed?.title) {
+                            document.getElementById('newProjTitle').value = parsed.title;
+                            document.getElementById('newProjDesc').value = parsed.desc || '';
+                            document.getElementById('newProjHtml').value = parsed.html || '';
+                        } else {
+                            alert('AI did not return valid JSON; try different keywords.');
+                        }
+                    } catch (err) {
+                        console.error('AI generate error', err);
+                        alert('AI generation failed. Using local fallback.');
+                        const fallback = localGenerate(promptText);
+                        document.getElementById('newProjTitle').value = fallback.title;
+                        document.getElementById('newProjDesc').value = fallback.desc;
+                        document.getElementById('newProjHtml').value = fallback.html;
+                    } finally {
+                        aiBtn.disabled = false;
+                        aiBtn.textContent = 'AI Generate (title, desc, preview HTML)';
+                    }
+                } else {
+                    const fallback = localGenerate(promptText);
+                    document.getElementById('newProjTitle').value = fallback.title;
+                    document.getElementById('newProjDesc').value = fallback.desc;
+                    document.getElementById('newProjHtml').value = fallback.html;
+                    aiBtn.textContent = 'Generated locally';
+                    setTimeout(() => { aiBtn.textContent = 'AI Generate (title, desc, preview HTML)'; }, 1200);
+                }
+            });
+        })();
+
+        // AI Edit (unchanged)
+        (function(){
+            const editAiBtn = document.getElementById('editAiBtn');
+            const editAiPrompt = document.getElementById('editAiPrompt');
+
+            function localEditGenerate(keywords, currentTitle){
+                const k = (keywords || '').trim();
+                const words = k ? k.split(/[\s,]+/).filter(Boolean) : [];
+                const base = currentTitle || 'Project';
+                const titleParts = words.slice(0,3).map(w => w.charAt(0).toUpperCase()+w.slice(1));
+                const title = titleParts.length ? titleParts.join(' ') + ' — Edited' : (base + ' — Edited');
+                const desc = k ? `Updated to emphasize ${words.slice(0,3).join(', ')}.` : 'Updated project description.';
+                const html = `<div style="padding:12px;border-radius:6px;background:#fff"><h3 style="margin:0 0 6px 0">${escapeHtml(title)}</h3><p style="margin:0;color:#444">${escapeHtml(desc)}</p></div>`;
+                return { title, desc, html };
+            }
+
+            async function runEditAI(promptText){
+                const prevText = editAiBtn ? editAiBtn.textContent : null;
+                if (window.websim?.chat?.completions) {
+                    try {
+                        if (editAiBtn) { editAiBtn.disabled = true; editAiBtn.textContent = 'Generating...'; }
+                        const system = {
+                            role: 'system',
+                            content: 'You are an expert full-stack developer and code generator. Respond ONLY with one valid JSON object containing keys: title (string), desc (string), html (string). The html must be a compact snippet suitable for embedding in an iframe preview and avoid unnecessary external links.'
+                        };
+                        const user = {
+                            role: 'user',
+                            content: `Edit the current project using keywords: ${promptText}. Return ONLY JSON like: {"title":"...","desc":"...","html":"<div>...</div>"}`
+                        };
+                        const completion = await websim.chat.completions.create({
+                            model: 'gemini-flash-2.5',
+                            messages: [system, user],
+                            json: true,
+                            temperature: 0.2,
+                            max_tokens: 800
+                        });
+                        let resultText = completion.content || completion;
+                        let parsed;
+                        try { parsed = (typeof resultText === 'string') ? JSON.parse(resultText) : resultText; } catch (e) {
+                            const m = ('' + resultText).match(/\{[\s\S]*\}/);
+                            if (m) parsed = JSON.parse(m[0]);
+                        }
+                        if (parsed && parsed.title) {
+                            document.getElementById('editTitle').value = parsed.title || '';
+                            document.getElementById('editDesc').value = parsed.desc || '';
+                            document.getElementById('editHtml').value = parsed.html || '';
+                        } else {
+                            throw new Error('invalid ai response');
+                        }
+                    } catch (err) {
+                        console.warn('AI edit failed, using local fallback', err);
+                        const curTitle = (document.getElementById('editTitle').value || '').trim();
+                        const fb = localEditGenerate(promptText, curTitle);
+                        document.getElementById('editTitle').value = fb.title;
+                        document.getElementById('editDesc').value = fb.desc;
+                        document.getElementById('editHtml').value = fb.html;
+                    } finally {
+                        if (editAiBtn) { editAiBtn.disabled = false; editAiBtn.textContent = prevText || 'AI Edit'; }
+                    }
+                } else {
+                    const curTitle = (document.getElementById('editTitle').value || '').trim();
+                    const fb = localEditGenerate(promptText, curTitle);
+                    document.getElementById('editTitle').value = fb.title;
+                    document.getElementById('editDesc').value = fb.desc;
+                    document.getElementById('editHtml').value = fb.html;
+                    if (editAiBtn) {
+                        const old = editAiBtn.textContent;
+                        editAiBtn.textContent = 'Generated locally';
+                        setTimeout(()=>{ editAiBtn.textContent = old || 'AI Edit'; }, 1200);
+                    }
+                }
+            }
+
+            if (editAiBtn) {
+                editAiBtn.addEventListener('click', async () => {
+                    const promptText = (editAiPrompt.value || '').trim();
+                    await runEditAI(promptText);
+                });
+            }
+
+            function escapeHtml(s){
+                return ('' + s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+            }
+        })();
+
+        // ==================== DARK MODE ====================
+        (function () {
+            const darkToggle = document.getElementById('darkToggle');
+            function applyDark(enabled) {
+                if (enabled) document.body.classList.add('dark-theme');
+                else document.body.classList.remove('dark-theme');
+                if (darkToggle) darkToggle.textContent = enabled ? '☀️' : '🌙';
+            }
+            try {
+                const v = localStorage.getItem('nexus_dark');
+                applyDark(v === '1' || v === 'true');
+            } catch (e) {}
+            if (darkToggle) {
+                darkToggle.addEventListener('click', () => {
+                    const now = !document.body.classList.contains('dark-theme');
+                    applyDark(now);
+                    try { localStorage.setItem('nexus_dark', now ? '1' : '0'); } catch (e) {}
+                });
+            }
+        })();
+
+        // ==================== INIT ====================
         loadProjects();
-        alert('Project updated.');
-      } else {
-        alert('Unable to save changes. Try again.');
-      }
-    });
-  }
 
-  // Cancel edit
-  document.getElementById('cancelEdit')?.addEventListener('click', () => {
-    document.getElementById('editBackdrop').style.display = 'none';
-  });
-
-  // Create project UI
-  const createBackdrop = document.getElementById('createProjectBackdrop');
-  const saveProjectBtn = document.getElementById('saveProject');
-  document.getElementById('cancelCreate')?.addEventListener('click', () => {
-    createBackdrop.style.display = 'none';
-  });
-  createBtn?.addEventListener('click', () => {
-    createBackdrop.style.display = 'flex';
-  });
-
-  // Save new project
-  saveProjectBtn?.addEventListener('click', async () => {
-    await ensureRoom();
-
-    const title = (document.getElementById('newProjTitle').value || '').trim();
-    const desc = (document.getElementById('newProjDesc').value || '').trim();
-    if (!title) return alert('Provide a title.');
-    const author = (currentUser() && (currentUser().username || currentUser().email)) || 'Anonymous';
-    const fileInput = document.getElementById('projImage');
-
-    // Image uploads disabled for projects — thumbnails are not accepted.
-
-    // Ensure no preview image is attached (thumbnails disabled)
-    let previewImage = null;
-
-    const generatedHtml = document.getElementById('newProjHtml')?.value || '';
-    const isPublic = document.getElementById('projPublic')?.value === 'true';
-    const payload = {
-      title,
-      desc,
-      author,
-      public: isPublic,
-      created_at: new Date().toISOString(),
-      previewImage,
-      previewText: (desc || '').slice(0, 200),
-      previewHtml: generatedHtml,
-    };
-
-    if (room) {
-      try {
-        await room.collection('project').create(payload);
-        createBackdrop.style.display = 'none';
-        // Clear form?
-        return;
-      } catch (e) {
-        console.warn('db create failed, falling back to localStorage', e);
-      }
-    }
-    // Fallback: localStorage
-    const stored = JSON.parse(localStorage.getItem('nexus_public_projects') || '[]');
-    const id = 'local_' + Date.now();
-    // ensure public flag so local fallback projects are visible on webview/public listings
-    const newProj = Object.assign({ id }, payload);
-    if (typeof newProj.public === 'undefined') newProj.public = true;
-    newProj.public = true; // enforce public for fallback-created projects
-    stored.unshift(newProj);
-    localStorage.setItem('nexus_public_projects', JSON.stringify(stored));
-    createBackdrop.style.display = 'none';
-    renderList(stored);
-  });
-
-  // Visibility toggle wiring for create/edit modals
-  (function setupToggles() {
-    function initToggle(publicBtnId, privateBtnId, hiddenId) {
-      const pubBtn = document.getElementById(publicBtnId);
-      const privBtn = document.getElementById(privateBtnId);
-      const hidden = document.getElementById(hiddenId);
-      if (!pubBtn || !privBtn || !hidden) return;
-      const setPublic = () => {
-        pubBtn.style.background = '#0056b3';
-        pubBtn.style.color = '#fff';
-        privBtn.style.background = '#e6e6e6';
-        privBtn.style.color = '#333';
-        hidden.value = 'true';
-      };
-      const setPrivate = () => {
-        privBtn.style.background = '#0056b3';
-        privBtn.style.color = '#fff';
-        pubBtn.style.background = '#e6e6e6';
-        pubBtn.style.color = '#333';
-        hidden.value = 'false';
-      };
-      pubBtn.addEventListener('click', setPublic);
-      privBtn.addEventListener('click', setPrivate);
-      // Initialize based on hidden's current value
-      if (hidden.value === 'false') setPrivate(); else setPublic();
-    }
-    initToggle('projPublicBtn', 'projPrivateBtn', 'projPublic');
-    initToggle('editProjPublicBtn', 'editProjPrivateBtn', 'editProjPublic');
-  })();
-
-  // AI generation
-  (function () {
-    const aiBtn = document.getElementById('aiGenerateBtn');
-    const aiPromptInput = document.getElementById('aiPrompt');
-
-    function localGenerate(keywords) {
-      const k = (keywords || '').trim();
-      const words = k ? k.split(/[\s,]+/).filter(Boolean) : [];
-      const titleParts = words.slice(0, 3).map(w => w.charAt(0).toUpperCase() + w.slice(1));
-      const title = titleParts.length ? titleParts.join(' ') + ' Showcase' : 'Minimal Project Showcase';
-      const desc = k ? `A compact ${words[0] || 'portfolio'}-style site showcasing ${words.slice(0, 3).join(', ') || 'projects'}.` : 'A concise showcase site built with Nexus.';
-      const previewHtml = words.some(w => /photo|image|gallery|portfolio|pic|photo/i.test(w))
-        ? `<div style="display:flex;align-items:center;justify-content:center;background:#f1f1f1;padding:8px;border-radius:6px"><img src="https://via.placeholder.com/600x400?text=${encodeURIComponent(title)}" style="max-width:100%;border-radius:6px" alt="${title}"></div>`
-        : `<div style="padding:12px;background:linear-gradient(90deg,#fff,#f6f9ff);border-radius:6px"><h3 style="margin:0 0 6px 0">${title}</h3><p style="margin:0;color:#444">${desc}</p></div>`;
-      return { title, desc, html: previewHtml };
-    }
-
-    aiBtn?.addEventListener('click', async () => {
-      const promptText = (aiPromptInput.value || '').trim();
-      if (window.websim?.chat?.completions) {
-        aiBtn.disabled = true;
-        aiBtn.textContent = 'Generating...';
-        try {
-          const system = {
-            role: 'system',
-            content: 'You are an expert full-stack developer and code generator. Respond only with valid JSON: {\"title\":string, \"desc\":string, \"html\":string}. The html value must be a compact, well-formed HTML snippet suitable for embedding in an iframe preview (e.g., a self-contained <div> or <img> block). Prefer semantic markup, add short inline comments in the html if useful, and avoid external resources unless essential.'
-          };
-          const user = {
-            role: 'user',
-            content: `Using these keywords: ${promptText}, produce a concise project title, a short description, and a preview HTML snippet. Return ONLY a single JSON object. The html field should be safe to embed and may include minimal inline styles or small inline scripts only when necessary. Example output: {\"title\":\"...\",\"desc\":\"...\",\"html\":\"<div>...</div>\"}`
-          };
-          const completion = await websim.chat.completions.create({
-            model: 'gemini-flash-2.5',
-            messages: [system, user],
-            json: true,
-            temperature: 0.2,
-            max_tokens: 800
-          });
-          let resultText = completion.content || completion;
-          let parsed;
-          try { parsed = (typeof resultText === 'string') ? JSON.parse(resultText) : resultText; } catch (e) {
-            const m = ('' + resultText).match(/\{[\s\S]*\}/);
-            if (m) parsed = JSON.parse(m[0]);
-          }
-          if (parsed?.title) {
-            document.getElementById('newProjTitle').value = parsed.title;
-            document.getElementById('newProjDesc').value = parsed.desc || '';
-            document.getElementById('newProjHtml').value = parsed.html || '';
-          } else {
-            alert('AI did not return valid JSON; try different keywords.');
-          }
-        } catch (err) {
-          console.error('AI generate error', err);
-          alert('AI generation failed. Using local fallback.');
-          const fallback = localGenerate(promptText);
-          document.getElementById('newProjTitle').value = fallback.title;
-          document.getElementById('newProjDesc').value = fallback.desc;
-          document.getElementById('newProjHtml').value = fallback.html;
-        } finally {
-          aiBtn.disabled = false;
-          aiBtn.textContent = 'AI Generate (title, desc, preview HTML)';
-        }
-      } else {
-        const fallback = localGenerate(promptText);
-        document.getElementById('newProjTitle').value = fallback.title;
-        document.getElementById('newProjDesc').value = fallback.desc;
-        document.getElementById('newProjHtml').value = fallback.html;
-        aiBtn.textContent = 'Generated locally';
-        setTimeout(() => { aiBtn.textContent = 'AI Generate (title, desc, preview HTML)'; }, 1200);
-      }
-    });
-  })();
-
-  // Initial load
-  (async function init() {
-    await ensureRoom();
-    if (room && room.collection) {
-      try {
-        room.collection('project').subscribe((all) => {
-          // mark remote projects public so they are visible to everyone
-          const list = (all || []).slice().reverse();
-          list.forEach(p => { if (p) p.public = true; });
-          renderList(list);
-        });
-        if (typeof room.collection('project').getList === 'function') {
-          try { room.collection('project').getList(); } catch (e) {}
-        }
-      } catch (e) {
-        console.warn('subscribe failed', e);
-        loadProjects();
-      }
-    } else {
-      loadProjects();
-    }
-  })();
-
-  // Dark mode
-  (function () {
-    const darkToggle = document.getElementById('darkToggle');
-    function applyDark(enabled) {
-      if (enabled) document.body.classList.add('dark-theme');
-      else document.body.classList.remove('dark-theme');
-      if (darkToggle) darkToggle.textContent = enabled ? '☀️' : '🌙';
-    }
-    try {
-      const v = localStorage.getItem('nexus_dark');
-      applyDark(v === '1' || v === 'true');
-    } catch (e) {}
-    if (darkToggle) {
-      darkToggle.addEventListener('click', () => {
-        const now = !document.body.classList.contains('dark-theme');
-        applyDark(now);
-        try { localStorage.setItem('nexus_dark', now ? '1' : '0'); } catch (e) {}
-      });
-    }
-  })();
-
-  // Load nexus helper (optional)
-  (function () {
-    const s = document.createElement('script');
-    s.src = 'nexus.jsx';
-    s.defer = true;
-    document.body.appendChild(s);
-  })();
-</script>
-
-<!-- Inline AI-generation fallback for the Create Project modal (binds aiGenerateBtn here so Home works standalone) -->
-<script>
-(function(){
-  const aiBtn = document.getElementById('aiGenerateBtn');
-  const aiPromptInput = document.getElementById('aiPrompt');
-
-  function localGenerate(keywords) {
-    const k = (keywords || '').trim();
-    const words = k ? k.split(/[\s,]+/).filter(Boolean) : [];
-    const titleParts = words.slice(0, 3).map(w => w.charAt(0).toUpperCase() + w.slice(1));
-    const title = titleParts.length ? titleParts.join(' ') + ' Showcase' : 'Minimal Project Showcase';
-    const desc = k ? `A compact ${words[0] || 'portfolio'}-style site showcasing ${words.slice(0, 3).join(', ') || 'projects'}.` : 'A concise showcase site built with Nexus.';
-    const previewHtml = words.some(w => /photo|image|gallery|portfolio|pic|photo/i.test(w))
-      ? `<div style="display:flex;align-items:center;justify-content:center;background:#f1f1f1;padding:8px;border-radius:6px"><img src="https://via.placeholder.com/600x400?text=${encodeURIComponent(title)}" style="max-width:100%;border-radius:6px" alt="${title}"></div>`
-      : `<div style="padding:12px;background:linear-gradient(90deg,#fff,#f6f9ff);border-radius:6px"><h3 style="margin:0 0 6px 0">${title}</h3><p style="margin:0;color:#444">${desc}</p></div>`;
-    return { title, desc, html: previewHtml };
-  }
-
-  async function runAI(promptText) {
-    if (window.websim?.chat?.completions) {
-      aiBtn.disabled = true;
-      const prevText = aiBtn.textContent;
-      aiBtn.textContent = 'Generating...';
-      try {
-        const system = {
-          role: 'system',
-          content: 'You are an expert full-stack developer and code generator. Respond ONLY with one valid JSON object containing keys: title (string), desc (string), html (string). The html must be a compact, well-formed snippet suitable for embedding in an iframe preview and may include brief inline comments; avoid unnecessary external links.'
-        };
-        const user = {
-          role: 'user',
-          content: `Create a concise project title, a short description, and a preview HTML snippet using these keywords: ${promptText}. Reply ONLY with JSON like: {\"title\":\"...\",\"desc\":\"...\",\"html\":\"<div>...</div>\"}`
-        };
-        const completion = await websim.chat.completions.create({
-          model: 'gemini-flash-2.5',
-          messages: [system, user],
-          json: true,
-          temperature: 0.2,
-          max_tokens: 800
-        });
-        let resultText = completion.content || completion;
-        let parsed;
-        try { parsed = (typeof resultText === 'string') ? JSON.parse(resultText) : resultText; } catch (e) {
-          const m = ('' + resultText).match(/\{[\s\S]*\}/);
-          if (m) parsed = JSON.parse(m[0]);
-        }
-        if (parsed && parsed.title) {
-          document.getElementById('newProjTitle').value = parsed.title || '';
-          document.getElementById('newProjDesc').value = parsed.desc || '';
-          document.getElementById('newProjHtml').value = parsed.html || '';
-        } else {
-          throw new Error('invalid ai response');
-        }
-      } catch (err) {
-        console.warn('AI generate failed, using local fallback', err);
-        const fb = localGenerate(promptText);
-        document.getElementById('newProjTitle').value = fb.title;
-        document.getElementById('newProjDesc').value = fb.desc;
-        document.getElementById('newProjHtml').value = fb.html;
-      } finally {
-        aiBtn.disabled = false;
-        aiBtn.textContent = prevText || 'AI Generate (title, desc, preview HTML)';
-      }
-    } else {
-      const fb = localGenerate(promptText);
-      document.getElementById('newProjTitle').value = fb.title;
-      document.getElementById('newProjDesc').value = fb.desc;
-      document.getElementById('newProjHtml').value = fb.html;
-      aiBtn.textContent = 'Generated locally';
-      setTimeout(()=>{ aiBtn.textContent = 'AI Generate (title, desc, preview HTML)'; }, 1200);
-    }
-  }
-
-  if (aiBtn) {
-    aiBtn.addEventListener('click', async () => {
-      const promptText = (aiPromptInput.value || '').trim();
-      await runAI(promptText);
-    });
-  }
-})();
-
-// --- AI Edit wiring for Edit Project modal ---
-(function(){
-  const editAiBtn = document.getElementById('editAiBtn');
-  const editAiPrompt = document.getElementById('editAiPrompt');
-
-  function localEditGenerate(keywords, currentTitle){
-    const k = (keywords || '').trim();
-    const words = k ? k.split(/[\s,]+/).filter(Boolean) : [];
-    const base = currentTitle || 'Project';
-    const titleParts = words.slice(0,3).map(w => w.charAt(0).toUpperCase()+w.slice(1));
-    const title = titleParts.length ? titleParts.join(' ') + ' — Edited' : (base + ' — Edited');
-    const desc = k ? `Updated to emphasize ${words.slice(0,3).join(', ')}.` : 'Updated project description.';
-    const html = `<div style="padding:12px;border-radius:6px;background:#fff"><h3 style="margin:0 0 6px 0">${escapeHtml(title)}</h3><p style="margin:0;color:#444">${escapeHtml(desc)}</p></div>`;
-    return { title, desc, html };
-  }
-
-  async function runEditAI(promptText){
-    const prevText = editAiBtn ? editAiBtn.textContent : null;
-    if (window.websim?.chat?.completions) {
-      try {
-        if (editAiBtn) { editAiBtn.disabled = true; editAiBtn.textContent = 'Generating...'; }
-        const system = {
-          role: 'system',
-          content: 'You are an expert full-stack developer and code generator. Respond ONLY with one valid JSON object containing keys: title (string), desc (string), html (string). The html must be a compact snippet suitable for embedding in an iframe preview and avoid unnecessary external links.'
-        };
-        const user = {
-          role: 'user',
-          content: `Edit the current project using keywords: ${promptText}. Return ONLY JSON like: {"title":"...","desc":"...","html":"<div>...</div>"}`
-        };
-        const completion = await websim.chat.completions.create({
-          model: 'gemini-flash-2.5',
-          messages: [system, user],
-          json: true,
-          temperature: 0.2,
-          max_tokens: 800
-        });
-        let resultText = completion.content || completion;
-        let parsed;
-        try { parsed = (typeof resultText === 'string') ? JSON.parse(resultText) : resultText; } catch (e) {
-          const m = ('' + resultText).match(/\{[\s\S]*\}/);
-          if (m) parsed = JSON.parse(m[0]);
-        }
-        if (parsed && parsed.title) {
-          document.getElementById('editTitle').value = parsed.title || '';
-          document.getElementById('editDesc').value = parsed.desc || '';
-          document.getElementById('editHtml').value = parsed.html || '';
-        } else {
-          throw new Error('invalid ai response');
-        }
-      } catch (err) {
-        console.warn('AI edit failed, using local fallback', err);
-        const curTitle = (document.getElementById('editTitle').value || '').trim();
-        const fb = localEditGenerate(promptText, curTitle);
-        document.getElementById('editTitle').value = fb.title;
-        document.getElementById('editDesc').value = fb.desc;
-        document.getElementById('editHtml').value = fb.html;
-      } finally {
-        if (editAiBtn) { editAiBtn.disabled = false; editAiBtn.textContent = prevText || 'AI Edit'; }
-      }
-    } else {
-      const curTitle = (document.getElementById('editTitle').value || '').trim();
-      const fb = localEditGenerate(promptText, curTitle);
-      document.getElementById('editTitle').value = fb.title;
-      document.getElementById('editDesc').value = fb.desc;
-      document.getElementById('editHtml').value = fb.html;
-      if (editAiBtn) {
-        const old = editAiBtn.textContent;
-        editAiBtn.textContent = 'Generated locally';
-        setTimeout(()=>{ editAiBtn.textContent = old || 'AI Edit'; }, 1200);
-      }
-    }
-  }
-
-  if (editAiBtn) {
-    editAiBtn.addEventListener('click', async () => {
-      const promptText = (editAiPrompt.value || '').trim();
-      await runEditAI(promptText);
-    });
-  }
-
-  // small helper to escape HTML in local fallback
-  function escapeHtml(s){
-    return ('' + s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
-  }
-})();
+        // Load nexus helper (optional)
+        (function () {
+            const s = document.createElement('script');
+            s.src = 'nexus.jsx';
+            s.defer = true;
+            document.body.appendChild(s);
+        })();
 </script>
 
 </body>
